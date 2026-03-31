@@ -20,7 +20,7 @@ class SendChatWebhook
         $employee = $event->employee->load(['office', 'position']);
 
         try {
-            Http::timeout(5)
+            $response = Http::timeout(5)
                 ->withHeaders([
                     'X-Webhook-Secret' => $secret,
                 ])
@@ -40,7 +40,11 @@ class SendChatWebhook
                     ],
                 ]);
 
-            Log::info('[Webhook] Chat sync triggered for new employee: ' . $employee->username);
+            if ($response->failed()) {
+                Log::warning('[Webhook] Failed to notify chat: HTTP ' . $response->status());
+            } else {
+                Log::info('[Webhook] Chat sync triggered for new employee: ' . $employee->username);
+            }
         } catch (\Exception $e) {
             Log::warning('[Webhook] Failed to notify chat: ' . $e->getMessage());
         }
