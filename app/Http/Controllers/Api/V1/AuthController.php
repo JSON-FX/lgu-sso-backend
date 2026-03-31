@@ -9,6 +9,7 @@ use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\EmployeeResource;
 use App\Http\Traits\SetsSsoCookie;
 use App\Models\AuditLog;
+use App\Events\EmployeeCreated;
 use App\Models\Employee;
 use App\Models\OAuthToken;
 use Illuminate\Http\JsonResponse;
@@ -87,6 +88,8 @@ class AuthController extends Controller
                 'role' => \App\Enums\AppRole::Guest->value,
             ]);
         }
+
+        EmployeeCreated::dispatch($employee);
 
         return response()->json([
             'username' => $username,
