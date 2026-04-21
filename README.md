@@ -2,6 +2,23 @@
 
 A Single Sign-On (SSO) API built with Laravel for Local Government Units (LGU). Provides centralized authentication, employee management, and OAuth-based application authorization.
 
+<!-- lgu-ecosystem:start -->
+## LGU Ecosystem
+
+This project is one of four applications that make up the LGU platform, all running inside the shared Docker container **development**:
+
+| Project     | Role                       | Dev URL                                 | Prod URL                                            |
+|-------------|----------------------------|-----------------------------------------|-----------------------------------------------------|
+| LGU-SSO     | Authentication API         | http://api.sso.local                    | https://api.sso.lguquezon.local                     |
+| lgu-sso-ui  | SSO login portal           | http://sso-portal.local                 | https://sso-portal.lguquezon.local                  |
+| lgu-chat    | Real-time messaging        | http://chat.local                       | https://chat.lguquezon.local                        |
+| opts2026    | Procurement tracking       | http://opts.local                       | https://opts.lguquezon.local                        |
+
+Authentication works in two hops: apps redirect users to the **login portal** (`sso-portal.*`), and then talk to the **SSO API** (`api.sso.*`) server-to-server to validate tokens and fetch the user profile. The legacy names `sso-ui.*`, `lgu-sso.test`, and `lgu-sso.local` are being phased out — always use `sso-portal.*` and `api.sso.*`.
+
+Dev and production configurations must be identical except for DNS hostnames, secrets, and `APP_ENV`/`NODE_ENV`/`APP_DEBUG`. See the workspace-level [`../CLAUDE.md`](../CLAUDE.md) for the full ecosystem overview, authentication model, and the list of known cross-app issues.
+<!-- lgu-ecosystem:end -->
+
 ## Docker Deployment (Recommended)
 
 LGU-SSO runs as part of a multi-service Docker stack. The Docker Compose setup lives in the parent directory and includes:
