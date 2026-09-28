@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
@@ -51,6 +52,21 @@ class Application extends Model
                 $application->client_secret = Hash::make(Str::random(40));
             }
         });
+
+        static::updated(function (Application $application) {
+            if (($application->wasChanged('is_active') && ! $application->is_active)
+                || $application->wasChanged('client_secret')) {
+                $application->revokeSessions();
+            }
+        });
+
+        static::deleting(fn (Application $application) => $application->revokeSessions());
+    }
+
+    public function revokeSessions(): void
+    {
+        $this->tokens()->whereNull('revoked_at')->update(['revoked_at' => now()]);
+        DB::table('sso_authorization_codes')->where('application_id', $this->id)->delete();
     }
 
     public function generateNewSecret(): string

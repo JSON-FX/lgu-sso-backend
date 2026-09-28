@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 
@@ -71,6 +72,15 @@ class Employee extends Authenticatable implements JWTSubject
                 $employee->uuid = (string) Str::uuid();
             }
         });
+
+        static::updated(function (Employee $employee) {
+            if (($employee->wasChanged('is_active') && ! $employee->is_active)
+                || ($employee->wasChanged('must_change_password') && $employee->must_change_password)) {
+                $employee->revokeSessions();
+            }
+        });
+
+        static::deleting(fn (Employee $employee) => $employee->revokeSessions());
     }
 
     public function getJWTIdentifier(): mixed
@@ -142,6 +152,24 @@ class Employee extends Authenticatable implements JWTSubject
     public function auditLogs(): HasMany
     {
         return $this->hasMany(AuditLog::class);
+    }
+
+    public function revokeSessions(?string $exceptTokenHash = null): void
+    {
+        $this->tokens()->whereNull('revoked_at')
+            ->when($exceptTokenHash, fn ($query) => $query->where('access_token', '!=', $exceptTokenHash))
+            ->update(['revoked_at' => now()]);
+        DB::table('sso_authorization_codes')->where('employee_id', $this->id)->delete();
+    }
+
+    public function revokeApplicationAccess(Application $application): void
+    {
+        DB::transaction(function () use ($application): void {
+            self::whereKey($this->id)->lockForUpdate()->firstOrFail();
+            $this->applications()->detach($application->id);
+            $this->tokens()->where('application_id', $application->id)->whereNull('revoked_at')->update(['revoked_at' => now()]);
+            DB::table('sso_authorization_codes')->where('employee_id', $this->id)->where('application_id', $application->id)->delete();
+        });
     }
 
     public function hasAccessTo(Application $application): bool

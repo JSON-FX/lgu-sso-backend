@@ -5,14 +5,15 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\ChangePasswordRequest;
 use App\Http\Requests\Auth\LoginRequest;
-use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\EmployeeResource;
 use App\Http\Traits\SetsSsoCookie;
 use App\Models\AuditLog;
-use App\Events\EmployeeCreated;
 use App\Models\Employee;
 use App\Models\OAuthToken;
+use App\Support\ActiveSsoToken;
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
@@ -20,18 +21,48 @@ class AuthController extends Controller
 {
     use SetsSsoCookie;
 
+    private const LOGIN_ACCOUNT_MAX_ATTEMPTS = 5;
+
+    private const LOGIN_IP_MAX_ATTEMPTS = 20;
+
+    private const LOGIN_DECAY_SECONDS = 900;
+
     public function login(LoginRequest $request): JsonResponse
     {
+        $limiter = app(RateLimiter::class);
+        $accountKey = 'sso_login:account:'.hash('sha256', mb_strtolower(trim($request->username), 'UTF-8'));
+        $ipKey = 'sso_login:ip:'.hash('sha256', (string) $request->ip());
+
+        $accountLimited = $limiter->tooManyAttempts($accountKey, self::LOGIN_ACCOUNT_MAX_ATTEMPTS);
+        $ipLimited = $limiter->tooManyAttempts($ipKey, self::LOGIN_IP_MAX_ATTEMPTS);
+
+        if ($accountLimited || $ipLimited) {
+            $retryAfter = max(
+                $accountLimited ? $limiter->availableIn($accountKey) : 0,
+                $ipLimited ? $limiter->availableIn($ipKey) : 0
+            );
+
+            return response()->json([
+                'message' => 'Too many login attempts. Please try again later.',
+                'retry_after' => $retryAfter,
+            ], 429)->header('Retry-After', $retryAfter);
+        }
+
         $employee = Employee::query()
             ->where('username', $request->username)
             ->where('is_active', true)
             ->first();
 
         if (! $employee || ! Hash::check($request->password, $employee->password)) {
+            $limiter->hit($accountKey, self::LOGIN_DECAY_SECONDS);
+            $limiter->hit($ipKey, self::LOGIN_DECAY_SECONDS);
+
             return response()->json([
                 'message' => 'Invalid credentials.',
             ], 401);
         }
+
+        $limiter->clear($accountKey);
 
         $token = JWTAuth::fromUser($employee);
 
@@ -45,56 +76,11 @@ class AuthController extends Controller
         $response = response()->json([
             'access_token' => $token,
             'token_type' => 'bearer',
+            'expires_in' => (int) config('jwt.ttl') * 60,
             'employee' => new EmployeeResource($employee),
         ]);
 
         return $this->attachSsoCookie($response, $token);
-    }
-
-    public function register(RegisterRequest $request)
-    {
-        // Normalize names to Title Case
-        $firstName = mb_convert_case($request->first_name, MB_CASE_TITLE, 'UTF-8');
-        $middleName = $request->middle_name ? mb_convert_case($request->middle_name, MB_CASE_TITLE, 'UTF-8') : null;
-        $lastName = mb_convert_case($request->last_name, MB_CASE_TITLE, 'UTF-8');
-
-        $username = Employee::generateUsername($firstName, $lastName);
-
-        // Default password: first initial + full last name (lowercased, no spaces)
-        $firstInitial = strtolower(substr($firstName, 0, 1));
-        $normalizedLastName = strtolower(str_replace(' ', '', $lastName));
-        $defaultPassword = $firstInitial . $normalizedLastName;
-
-        $employee = Employee::create([
-            'first_name' => $firstName,
-            'middle_name' => $middleName,
-            'last_name' => $lastName,
-            'username' => $username,
-            'email' => $username . '@lgu.gov.ph',
-            'password' => Hash::make($defaultPassword),
-            'must_change_password' => true,
-            'is_active' => true,
-            'birthday' => '2000-01-01',
-            'civil_status' => 'single',
-            'nationality' => 'Filipino',
-            'residence' => '',
-            'position_id' => null,
-        ]);
-
-        // Auto-grant guest role on all active applications
-        $applications = \App\Models\Application::where('is_active', true)->get();
-        foreach ($applications as $app) {
-            $employee->applications()->attach($app->id, [
-                'role' => \App\Enums\AppRole::Guest->value,
-            ]);
-        }
-
-        EmployeeCreated::dispatch($employee);
-
-        return response()->json([
-            'username' => $username,
-            'message' => 'Registration successful',
-        ], 201);
     }
 
     public function logout(): JsonResponse
@@ -103,12 +89,13 @@ class AuthController extends Controller
         $token = JWTAuth::getToken();
 
         if ($token) {
-            $hashedToken = hash('sha256', $token->get());
-            OAuthToken::query()
-                ->where('access_token', $hashedToken)
-                ->whereNull('revoked_at')
-                ->update(['revoked_at' => now()]);
-
+            DB::transaction(function () use ($employee, $token): void {
+                Employee::whereKey($employee->id)->lockForUpdate()->firstOrFail();
+                $hashedToken = hash('sha256', $token->get());
+                OAuthToken::query()->where('access_token', $hashedToken)->whereNull('revoked_at')
+                    ->update(['revoked_at' => now()]);
+                DB::table('sso_authorization_codes')->where('source_token_hash', $hashedToken)->delete();
+            });
             JWTAuth::invalidate($token);
         }
 
@@ -118,17 +105,17 @@ class AuthController extends Controller
             'message' => 'Successfully logged out.',
         ]);
 
-        return $this->clearSsoCookie($response);
+        return request()->attributes->get('sso_token')->application_id === null
+            ? $this->clearSsoCookie($response) : $response;
     }
 
     public function logoutAll(): JsonResponse
     {
         $employee = auth()->user();
 
-        OAuthToken::query()
-            ->where('employee_id', $employee->id)
-            ->whereNull('revoked_at')
-            ->update(['revoked_at' => now()]);
+        DB::transaction(function () use ($employee): void {
+            Employee::whereKey($employee->id)->lockForUpdate()->firstOrFail()->revokeSessions();
+        });
 
         $token = JWTAuth::getToken();
         if ($token) {
@@ -146,38 +133,31 @@ class AuthController extends Controller
 
     public function refresh(): JsonResponse
     {
-        $employee = auth()->user();
-        $oldToken = JWTAuth::getToken();
+        $employeeId = auth()->id();
+        $oldToken = request()->bearerToken();
 
-        if ($oldToken) {
-            $hashedOldToken = hash('sha256', $oldToken->get());
-            OAuthToken::query()
-                ->where('access_token', $hashedOldToken)
-                ->whereNull('revoked_at')
-                ->update(['revoked_at' => now()]);
-        }
+        return DB::transaction(function () use ($employeeId, $oldToken): JsonResponse {
+            $employee = Employee::whereKey($employeeId)->lockForUpdate()->firstOrFail();
+            $session = ActiveSsoToken::find($oldToken, $employee->id);
+            if (! $session || $session->application_id !== null || ! $employee->is_active || $employee->must_change_password) {
+                return response()->json(['message' => 'Unauthenticated.'], 401);
+            }
 
-        $newToken = JWTAuth::refresh();
+            $session->revoke();
+            $newToken = JWTAuth::setToken($oldToken)->refresh();
+            OAuthToken::create(['employee_id' => $employee->id, 'access_token' => hash('sha256', $newToken)]);
+            AuditLog::log('token_refresh', $employee);
 
-        OAuthToken::create([
-            'employee_id' => $employee->id,
-            'access_token' => hash('sha256', $newToken),
-        ]);
-
-        AuditLog::log('token_refresh', $employee);
-
-        $response = response()->json([
-            'access_token' => $newToken,
-            'token_type' => 'bearer',
-        ]);
-
-        return $this->attachSsoCookie($response, $newToken);
+            return $this->attachSsoCookie(response()->json([
+                'access_token' => $newToken, 'token_type' => 'bearer', 'expires_in' => (int) config('jwt.ttl') * 60,
+            ]), $newToken);
+        });
     }
 
     public function me(): JsonResponse
     {
         $employee = auth()->user();
-        $employee->load(['office', 'applications']);
+        $employee->load(['office', 'applications' => fn ($query) => $query->where('is_active', true)]);
 
         return response()->json([
             'data' => new EmployeeResource($employee),
@@ -186,21 +166,20 @@ class AuthController extends Controller
 
     public function changePassword(ChangePasswordRequest $request): JsonResponse
     {
-        $employee = auth()->user();
+        $employeeId = auth()->id();
 
-        if (! Hash::check($request->current_password, $employee->password)) {
-            return response()->json([
-                'message' => 'Current password is incorrect.',
-            ], 422);
-        }
+        return DB::transaction(function () use ($employeeId, $request): JsonResponse {
+            $employee = Employee::whereKey($employeeId)->lockForUpdate()->firstOrFail();
+            if (! ActiveSsoToken::exists($request->bearerToken(), $employee->id)) {
+                return response()->json(['message' => 'Unauthenticated.'], 401);
+            }
+            if (! Hash::check($request->current_password, $employee->password)) {
+                return response()->json(['message' => 'Current password is incorrect.'], 422);
+            }
+            $employee->update(['password' => Hash::make($request->new_password), 'must_change_password' => false]);
+            $employee->revokeSessions(hash('sha256', $request->bearerToken()));
 
-        $employee->update([
-            'password' => Hash::make($request->new_password),
-            'must_change_password' => false,
-        ]);
-
-        return response()->json([
-            'message' => 'Password changed successfully.',
-        ]);
+            return response()->json(['message' => 'Password changed successfully.']);
+        });
     }
 }

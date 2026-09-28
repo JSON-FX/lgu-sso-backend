@@ -27,7 +27,7 @@ beforeEach(function () {
 
 it('includes the sso cookie on login response', function () {
     $response = $this->postJson('/api/v1/auth/login', [
-        'email' => 'sso@example.com',
+        'username' => $this->employee->username,
         'password' => 'password',
     ]);
 
@@ -41,96 +41,17 @@ it('includes the sso cookie on login response', function () {
         ->and($cookie->getDomain())->toBe(config('sso.cookie_domain'));
 });
 
-it('returns authenticated true when sso check has valid cookie', function () {
-    $token = JWTAuth::fromUser($this->employee);
-
-    OAuthToken::create([
-        'employee_id' => $this->employee->id,
-        'access_token' => hash('sha256', $token),
-    ]);
-
-    $response = $this->withCredentials()
-        ->withUnencryptedCookies([$this->cookieName => $token])
-        ->getJson('/api/v1/sso/check', $this->appHeaders);
-
-    $response->assertSuccessful()
-        ->assertJsonPath('authenticated', true)
-        ->assertJsonStructure([
-            'authenticated',
-            'access_token',
-            'token_type',
-            'employee' => ['uuid', 'email'],
-        ]);
-});
-
-it('returns authenticated false when sso check has no cookie', function () {
-    $response = $this->withCredentials()
-        ->getJson('/api/v1/sso/check', $this->appHeaders);
-
-    $response->assertSuccessful()
-        ->assertJsonPath('authenticated', false);
-});
-
-it('returns authenticated false and clears cookie for invalid token', function () {
-    $response = $this->withCredentials()
-        ->withUnencryptedCookies([$this->cookieName => 'invalid-jwt-token'])
-        ->getJson('/api/v1/sso/check', $this->appHeaders);
-
-    $response->assertSuccessful()
-        ->assertJsonPath('authenticated', false);
-
-    $cookie = collect($response->headers->getCookies())
-        ->first(fn ($c) => $c->getName() === $this->cookieName);
-
-    expect($cookie)->not->toBeNull()
-        ->and($cookie->isCleared())->toBeTrue();
-});
-
-it('returns authenticated false for inactive employee', function () {
-    $this->employee->update(['is_active' => false]);
-
-    $token = JWTAuth::fromUser($this->employee);
-
-    $response = $this->withCredentials()
-        ->withUnencryptedCookies([$this->cookieName => $token])
-        ->getJson('/api/v1/sso/check', $this->appHeaders);
-
-    $response->assertSuccessful()
-        ->assertJsonPath('authenticated', false);
-
-    $cookie = collect($response->headers->getCookies())
-        ->first(fn ($c) => $c->getName() === $this->cookieName);
-
-    expect($cookie)->not->toBeNull()
-        ->and($cookie->isCleared())->toBeTrue();
-});
-
-it('clears cookie and revokes token on cookie logout', function () {
-    $token = JWTAuth::fromUser($this->employee);
-
-    $oauthToken = OAuthToken::create([
-        'employee_id' => $this->employee->id,
-        'access_token' => hash('sha256', $token),
-    ]);
-
-    $response = $this->withCredentials()
-        ->withUnencryptedCookies([$this->cookieName => $token])
-        ->postJson('/api/v1/sso/cookie-logout', [], $this->appHeaders);
-
-    $response->assertSuccessful()
-        ->assertJsonPath('message', 'Successfully logged out.');
-
-    $cookie = collect($response->headers->getCookies())
-        ->first(fn ($c) => $c->getName() === $this->cookieName);
-
-    expect($cookie)->not->toBeNull()
-        ->and($cookie->isCleared())->toBeTrue();
-
-    expect($oauthToken->fresh()->revoked_at)->not->toBeNull();
+it('retires shared cookie consumer authentication and logout', function () {
+    $token = $this->issueSsoToken($this->employee);
+    $this->withUnencryptedCookies([$this->cookieName => $token])
+        ->getJson('/api/v1/sso/check', $this->appHeaders)
+        ->assertStatus(410)->assertJsonMissingPath('access_token');
+    $this->postJson('/api/v1/sso/cookie-logout', [], $this->appHeaders)->assertStatus(410);
+    expect(OAuthToken::where('access_token', hash('sha256', $token))->first()->revoked_at)->toBeNull();
 });
 
 it('clears sso cookie on auth logout', function () {
-    $response = $this->actingAs($this->employee, 'api')
+    $response = $this->asSsoEmployee($this->employee)
         ->postJson('/api/v1/auth/logout');
 
     $response->assertSuccessful();
@@ -174,6 +95,10 @@ it('requires app credentials for sso check', function () {
 
 it('returns authenticated true from session-check with valid cookie', function () {
     $token = JWTAuth::fromUser($this->employee);
+    OAuthToken::create([
+        'employee_id' => $this->employee->id,
+        'access_token' => hash('sha256', $token),
+    ]);
 
     $response = $this->withCredentials()
         ->withUnencryptedCookies([$this->cookieName => $token])
@@ -181,7 +106,7 @@ it('returns authenticated true from session-check with valid cookie', function (
 
     $response->assertSuccessful()
         ->assertJsonPath('authenticated', true)
-        ->assertJsonStructure(['authenticated', 'access_token']);
+        ->assertJsonMissingPath('access_token');
 });
 
 it('returns authenticated false from session-check with no cookie', function () {

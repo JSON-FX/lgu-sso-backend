@@ -8,7 +8,7 @@ use App\Http\Traits\SetsSsoCookie;
 use App\Models\Application;
 use App\Models\AuditLog;
 use App\Models\Employee;
-use App\Models\OAuthToken;
+use App\Support\ActiveSsoToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Tymon\JWTAuth\Exceptions\JWTException;
@@ -18,98 +18,62 @@ class SsoController extends Controller
 {
     use SetsSsoCookie;
 
-    public function validate(Request $request): JsonResponse
+    private function applicationEmployee(Request $request): Employee|JsonResponse
     {
         $token = $request->input('token') ?? $request->bearerToken();
-
-        if (! $token) {
-            return response()->json([
-                'valid' => false,
-                'message' => 'Token is required.',
-            ], 400);
+        if (! is_string($token) || $token === '') {
+            return response()->json(['valid' => false, 'authorized' => false, 'message' => 'A token is required.'], 400);
         }
 
         try {
-            JWTAuth::setToken($token);
-            $payload = JWTAuth::getPayload();
+            $payload = JWTAuth::setToken($token)->getPayload();
             $employee = Employee::find($payload->get('sub'));
-
-            if (! $employee || ! $employee->is_active) {
-                return response()->json([
-                    'valid' => false,
-                    'message' => 'Invalid or inactive employee.',
-                ], 401);
+            $session = $employee ? ActiveSsoToken::find($token, $employee->id) : null;
+            if (! $employee || ! $employee->is_active || ! $session) {
+                return response()->json(['valid' => false, 'authorized' => false, 'message' => 'Invalid or inactive session.'], 401);
             }
 
             $application = $request->attributes->get('application');
-            AuditLog::log('token_validate', $employee, $application);
+            if (! $application instanceof Application || $session->application_id !== $application->id
+                || $employee->must_change_password || ! $employee->hasAccessTo($application)) {
+                return response()->json(['valid' => false, 'authorized' => false, 'message' => 'Application access denied.'], 403);
+            }
 
-            $employee->load(['office', 'position', 'applications']);
-
-            return response()->json([
-                'valid' => true,
-                'data' => new EmployeeResource($employee),
-            ]);
-        } catch (JWTException $e) {
-            return response()->json([
-                'valid' => false,
-                'message' => 'Invalid token.',
-            ], 401);
+            return $employee;
+        } catch (JWTException $exception) {
+            return response()->json(['valid' => false, 'authorized' => false, 'message' => 'Invalid or expired token.'], 401);
         }
+    }
+
+    public function validate(Request $request): JsonResponse
+    {
+        $employee = $this->applicationEmployee($request);
+        if ($employee instanceof JsonResponse) {
+            return $employee;
+        }
+
+        $application = $request->attributes->get('application');
+        AuditLog::log('token_validate', $employee, $application);
+        $employee->load(['office', 'position', 'applications' => fn ($query) => $query->where('applications.id', $application->id)]);
+
+        return response()->json(['valid' => true, 'data' => new EmployeeResource($employee)]);
     }
 
     public function authorize(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'token' => ['required', 'string'],
-        ]);
-
-        try {
-            JWTAuth::setToken($validated['token']);
-            $payload = JWTAuth::getPayload();
-            $employee = Employee::find($payload->get('sub'));
-
-            if (! $employee || ! $employee->is_active) {
-                return response()->json([
-                    'authorized' => false,
-                    'message' => 'Invalid or inactive employee.',
-                ], 401);
-            }
-
-            $application = $request->attributes->get('application');
-
-            if (! $application instanceof Application) {
-                return response()->json([
-                    'authorized' => false,
-                    'message' => 'Application not found.',
-                ], 400);
-            }
-
-            if (! $employee->hasAccessTo($application)) {
-                return response()->json([
-                    'authorized' => false,
-                    'message' => 'Employee does not have access to this application.',
-                ], 403);
-            }
-
-            $role = $employee->getRoleFor($application);
-            AuditLog::log('app_authorize', $employee, $application);
-
-            return response()->json([
-                'authorized' => true,
-                'role' => $role?->value,
-                'employee' => [
-                    'uuid' => $employee->uuid,
-                    'full_name' => $employee->full_name,
-                    'email' => $employee->email,
-                ],
-            ]);
-        } catch (JWTException $e) {
-            return response()->json([
-                'authorized' => false,
-                'message' => 'Invalid token.',
-            ], 401);
+        $employee = $this->applicationEmployee($request);
+        if ($employee instanceof JsonResponse) {
+            return $employee;
         }
+
+        $application = $request->attributes->get('application');
+        AuditLog::log('app_authorize', $employee, $application);
+
+        return response()->json([
+            'authorized' => true,
+            'role' => $employee->getRoleFor($application)?->value,
+            'employee' => ['uuid' => $employee->uuid, 'full_name' => $employee->full_name, 'email' => $employee->email],
+        ]);
     }
 
     public function validateRedirect(Request $request): JsonResponse
@@ -147,180 +111,65 @@ class SsoController extends Controller
 
     public function employee(Request $request): JsonResponse
     {
-        $employee = auth()->user();
-
-        if (! $employee instanceof Employee) {
-            return response()->json([
-                'message' => 'Unauthorized.',
-            ], 401);
+        $employee = $this->applicationEmployee($request);
+        if ($employee instanceof JsonResponse) {
+            return $employee;
         }
 
         $application = $request->attributes->get('application');
+        $employee->load(['office', 'position', 'applications' => fn ($query) => $query->where('applications.id', $application->id)]);
 
-        if ($application instanceof Application && ! $employee->hasAccessTo($application)) {
-            return response()->json([
-                'message' => 'Employee does not have access to this application.',
-            ], 403);
-        }
-
-        $employee->load(['office', 'position', 'applications']);
-        $role = $application instanceof Application ? $employee->getRoleFor($application) : null;
-
-        return response()->json([
-            'data' => new EmployeeResource($employee),
-            'role' => $role?->value,
-        ]);
+        return response()->json(['data' => new EmployeeResource($employee), 'role' => $employee->getRoleFor($application)?->value]);
     }
 
-    /**
-     * Public session check for the SSO login page.
-     * Reads the SSO cookie and returns the token if valid.
-     * No app credentials required — used by SSO-UI to auto-authenticate.
-     */
     public function sessionCheck(Request $request): JsonResponse
     {
-        $cookieName = config('sso.cookie_name');
-        $token = $request->cookie($cookieName);
-
-        if (! $token) {
-            return response()->json([
-                'authenticated' => false,
-            ]);
+        $token = $request->cookie(config('sso.cookie_name'));
+        if (! is_string($token) || $token === '') {
+            return response()->json(['authenticated' => false]);
         }
 
         try {
-            JWTAuth::setToken($token);
-            JWTAuth::getPayload();
-            $employee = Employee::find(JWTAuth::getPayload()->get('sub'));
-
-            if (! $employee || ! $employee->is_active) {
-                $response = response()->json([
-                    'authenticated' => false,
-                ]);
-
-                return $this->clearSsoCookie($response);
-            }
-
-            return response()->json([
-                'authenticated' => true,
-                'access_token' => $token,
-            ]);
-        } catch (JWTException $e) {
-            $response = response()->json([
-                'authenticated' => false,
-            ]);
-
-            return $this->clearSsoCookie($response);
-        }
-    }
-
-    public function check(Request $request): JsonResponse
-    {
-        $cookieName = config('sso.cookie_name');
-        $token = $request->cookie($cookieName);
-
-        if (! $token) {
-            return response()->json([
-                'authenticated' => false,
-                'message' => 'No SSO cookie present.',
-            ]);
-        }
-
-        try {
-            JWTAuth::setToken($token);
-            $payload = JWTAuth::getPayload();
+            $payload = JWTAuth::setToken($token)->getPayload();
             $employee = Employee::find($payload->get('sub'));
-
-            if (! $employee || ! $employee->is_active) {
-                $response = response()->json([
-                    'authenticated' => false,
-                    'message' => 'Invalid or inactive employee.',
-                ]);
-
-                return $this->clearSsoCookie($response);
+            $session = $employee ? ActiveSsoToken::find($token, $employee->id) : null;
+            if ($employee?->is_active && $session && $session->application_id === null) {
+                return response()->json(['authenticated' => true]);
             }
-
-            $application = $request->attributes->get('application');
-            AuditLog::log('sso_check', $employee, $application);
-
-            $employee->load(['office']);
-
-            return response()->json([
-                'authenticated' => true,
-                'access_token' => $token,
-                'token_type' => 'bearer',
-                'employee' => new EmployeeResource($employee),
-            ]);
-        } catch (JWTException $e) {
-            $response = response()->json([
-                'authenticated' => false,
-                'message' => 'Invalid or expired token.',
-            ]);
-
-            return $this->clearSsoCookie($response);
+        } catch (JWTException $exception) {
+            // Expired and malformed cookies are cleared in the same way.
         }
+
+        return $this->clearSsoCookie(response()->json(['authenticated' => false]));
     }
 
-    public function employees(): JsonResponse
+    public function check(): JsonResponse
     {
-        $employees = Employee::with(['office', 'position'])->get();
-
-        $data = $employees->map(function (Employee $employee) {
-            return [
-                'uuid' => $employee->uuid,
-                'username' => $employee->username,
-                'email' => $employee->email,
-                'first_name' => $employee->first_name,
-                'middle_name' => $employee->middle_name,
-                'last_name' => $employee->last_name,
-                'full_name' => $employee->full_name,
-                'position' => $employee->position?->title,
-                'office_name' => $employee->office?->name,
-                'is_active' => $employee->is_active,
-            ];
-        });
-
-        return response()->json($data);
+        return response()->json(['message' => 'Cookie-based consumer sign-in is retired. Use authorization code exchange.'], 410);
     }
 
-    public function cookieLogout(Request $request): JsonResponse
+    public function cookieLogout(): JsonResponse
     {
-        $cookieName = config('sso.cookie_name');
-        $token = $request->cookie($cookieName);
+        return response()->json(['message' => 'Cookie-based consumer logout is retired. Revoke the application bearer through /auth/logout.'], 410);
+    }
 
-        if (! $token) {
-            $response = response()->json([
-                'message' => 'No SSO cookie present.',
-            ]);
+    public function employees(Request $request): JsonResponse
+    {
+        $application = $request->attributes->get('application');
+        $employees = $application->employees()->where('is_active', true)->where('must_change_password', false)
+            ->with(['office', 'position'])->get();
 
-            return $this->clearSsoCookie($response);
-        }
-
-        try {
-            JWTAuth::setToken($token);
-            $payload = JWTAuth::getPayload();
-            $employee = Employee::find($payload->get('sub'));
-
-            if ($employee) {
-                $hashedToken = hash('sha256', $token);
-                OAuthToken::query()
-                    ->where('access_token', $hashedToken)
-                    ->whereNull('revoked_at')
-                    ->update(['revoked_at' => now()]);
-
-                $application = $request->attributes->get('application');
-                AuditLog::log('sso_logout', $employee, $application);
-            }
-
-            JWTAuth::invalidate(JWTAuth::getToken());
-        } catch (JWTException $e) {
-            // Token already invalid — still clear the cookie
-        }
-
-        $response = response()->json([
-            'message' => 'Successfully logged out.',
-        ]);
-
-        return $this->clearSsoCookie($response);
+        return response()->json($employees->map(fn (Employee $employee) => [
+            'uuid' => $employee->uuid,
+            'username' => $employee->username,
+            'email' => $employee->email,
+            'first_name' => $employee->first_name,
+            'middle_name' => $employee->middle_name,
+            'last_name' => $employee->last_name,
+            'full_name' => $employee->full_name,
+            'position' => $employee->position?->title,
+            'office_name' => $employee->office?->name,
+            'is_active' => $employee->is_active,
+        ]));
     }
 }

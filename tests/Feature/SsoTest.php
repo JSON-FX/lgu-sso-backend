@@ -5,7 +5,6 @@ use App\Models\Application;
 use App\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Tymon\JWTAuth\Facades\JWTAuth;
 
 uses(RefreshDatabase::class);
 
@@ -18,7 +17,8 @@ beforeEach(function () {
 });
 
 it('can validate a token with valid credentials', function () {
-    $token = JWTAuth::fromUser($this->employee);
+    $this->employee->applications()->attach($this->application, ['role' => AppRole::Standard->value]);
+    $token = $this->issueSsoToken($this->employee, $this->application);
 
     $response = $this->postJson('/api/v1/sso/validate', [
         'token' => $token,
@@ -57,7 +57,7 @@ it('can authorize employee for an application', function () {
         'role' => AppRole::Standard->value,
     ]);
 
-    $token = JWTAuth::fromUser($this->employee);
+    $token = $this->issueSsoToken($this->employee, $this->application);
 
     $response = $this->postJson('/api/v1/sso/authorize', [
         'token' => $token,
@@ -72,7 +72,7 @@ it('can authorize employee for an application', function () {
 });
 
 it('denies authorization for employee without access', function () {
-    $token = JWTAuth::fromUser($this->employee);
+    $token = $this->issueSsoToken($this->employee, $this->application);
 
     $response = $this->postJson('/api/v1/sso/authorize', [
         'token' => $token,

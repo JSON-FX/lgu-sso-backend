@@ -3,60 +3,79 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Resources\LocationResource;
-use App\Models\Barangay;
-use App\Models\City;
-use App\Models\Province;
-use App\Models\Region;
-use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 
 class LocationController extends Controller
 {
-    public function regions(): AnonymousResourceCollection
-    {
-        $regions = Region::query()
-            ->orderBy('name')
-            ->get();
+    private const REFRESH_AFTER_SECONDS = 86400;
 
-        return LocationResource::collection($regions);
+    public function regions(): JsonResponse
+    {
+        return $this->fetchLocations('/regions');
     }
 
-    public function provincesByRegion(string $regionCode): AnonymousResourceCollection
+    public function provincesByRegion(string $regionCode): JsonResponse
     {
-        $provinces = Province::query()
-            ->where('region_code', $regionCode)
-            ->orderBy('name')
-            ->get();
-
-        return LocationResource::collection($provinces);
+        return $this->fetchLocations('/regions/'.rawurlencode($regionCode).'/provinces');
     }
 
-    public function provinces(): AnonymousResourceCollection
+    public function provinces(): JsonResponse
     {
-        $provinces = Province::query()
-            ->orderBy('name')
-            ->get();
-
-        return LocationResource::collection($provinces);
+        return $this->fetchLocations('/provinces');
     }
 
-    public function cities(string $provinceCode): AnonymousResourceCollection
+    public function cities(string $provinceCode): JsonResponse
     {
-        $cities = City::query()
-            ->where('province_code', $provinceCode)
-            ->orderBy('name')
-            ->get();
-
-        return LocationResource::collection($cities);
+        return $this->fetchLocations('/provinces/'.rawurlencode($provinceCode).'/cities-municipalities');
     }
 
-    public function barangays(string $cityCode): AnonymousResourceCollection
+    public function barangays(string $cityCode): JsonResponse
     {
-        $barangays = Barangay::query()
-            ->where('city_code', $cityCode)
-            ->orderBy('name')
-            ->get();
+        return $this->fetchLocations('/cities-municipalities/'.rawurlencode($cityCode).'/barangays');
+    }
 
-        return LocationResource::collection($barangays);
+    private function fetchLocations(string $path): JsonResponse
+    {
+        $cacheKey = 'psgc:locations:'.hash('sha256', $path);
+        $cached = Cache::get($cacheKey);
+
+        if (is_array($cached) && isset($cached['fetched_at'], $cached['data'])
+            && is_array($cached['data'])
+            && now()->timestamp - $cached['fetched_at'] < self::REFRESH_AFTER_SECONDS) {
+            return response()->json(['data' => $cached['data']]);
+        }
+
+        try {
+            $response = Http::acceptJson()
+                ->timeout(10)
+                ->get(rtrim(config('services.psgc.url'), '/').$path);
+        } catch (ConnectionException $e) {
+            return $this->cachedOrUnavailable($cached);
+        }
+
+        $locations = $response->json();
+
+        if (! $response->successful() || ! is_array($locations) || ! array_is_list($locations)) {
+            return $this->cachedOrUnavailable($cached);
+        }
+
+        Cache::forever($cacheKey, [
+            'data' => $locations,
+            'fetched_at' => now()->timestamp,
+        ]);
+
+        return response()->json(['data' => $locations]);
+    }
+
+    private function cachedOrUnavailable(mixed $cached): JsonResponse
+    {
+        if (is_array($cached) && isset($cached['data']) && is_array($cached['data'])) {
+            return response()->json(['data' => $cached['data']]);
+        }
+
+        return response()->json(['message' => 'Location service is unavailable.'], 503);
     }
 }

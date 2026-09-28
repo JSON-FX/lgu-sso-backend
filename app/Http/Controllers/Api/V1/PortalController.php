@@ -58,7 +58,7 @@ class PortalController extends Controller
     public function applications()
     {
         $employee = auth()->user();
-        $applications = $employee->applications()->get()->map(function ($app) {
+        $applications = $employee->applications()->where('is_active', true)->get()->map(function ($app) {
             return [
                 'uuid' => $app->uuid,
                 'name' => $app->name,

@@ -18,12 +18,12 @@ return [
     | SSO Cookie Domain
     |--------------------------------------------------------------------------
     |
-    | The domain for the SSO cookie. Use a leading dot to share across
-    | subdomains (e.g., ".local").
+    | Central cookies are host-only. Consumers use authorization codes,
+    | never a shared central bearer cookie.
     |
     */
 
-    'cookie_domain' => env('SSO_COOKIE_DOMAIN', '.local'),
+    'cookie_domain' => null,
 
     /*
     |--------------------------------------------------------------------------

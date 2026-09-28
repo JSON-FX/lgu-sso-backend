@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -12,8 +13,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->trustProxies(at: env('TRUSTED_PROXIES', '127.0.0.1'));
         $middleware->encryptCookies(except: ['lgu_sso_token']);
+        $middleware->redirectGuestsTo(
+            fn (Request $request) => $request->is('api/*') ? null : '/login'
+        );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->shouldRenderJsonWhen(
+            fn (Request $request, \Throwable $exception) => $request->is('api/*') || $request->expectsJson()
+        );
     })->create();

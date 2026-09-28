@@ -13,6 +13,10 @@ class EmployeeSeeder extends Seeder
 {
     public function run(): void
     {
+        if (! app()->environment('local', 'testing')) {
+            throw new \RuntimeException('Demo employees are only available in local and test environments.');
+        }
+
         $admin = Employee::firstOrCreate(
             ['email' => 'admin@lgu-sso.test'],
             [

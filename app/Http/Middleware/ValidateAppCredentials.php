@@ -14,7 +14,7 @@ class ValidateAppCredentials
         $clientId = $request->header('X-Client-ID') ?? $request->input('client_id');
         $clientSecret = $request->header('X-Client-Secret') ?? $request->input('client_secret');
 
-        if (! $clientId || ! $clientSecret) {
+        if (! is_string($clientId) || $clientId === '' || ! is_string($clientSecret) || $clientSecret === '') {
             return response()->json([
                 'message' => 'Missing client credentials.',
             ], Response::HTTP_UNAUTHORIZED);

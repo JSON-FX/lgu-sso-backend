@@ -5,7 +5,6 @@ namespace App\Http\Requests\Employee;
 use App\Enums\CivilStatus;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Rules\Password;
 
 class StoreEmployeeRequest extends FormRequest
 {
@@ -32,8 +31,7 @@ class StoreEmployeeRequest extends FormRequest
             'building_floor' => ['nullable', 'string', 'max:50'],
             'house_number' => ['nullable', 'string', 'max:50'],
             'nationality' => ['required', 'string', 'max:100'],
-            'email' => ['required', 'email', 'unique:employees,email'],
-            'password' => ['required', Password::defaults()],
+            'email' => ['nullable', 'email', 'unique:employees,email'],
             'office_id' => ['nullable', 'integer', 'exists:offices,id'],
             'position_id' => ['nullable', 'integer', 'exists:positions,id'],
             'date_employed' => ['nullable', 'date'],
