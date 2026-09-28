@@ -68,6 +68,8 @@ Route::prefix('v1')->group(function () {
         Route::get('portal/profile', [PortalController::class, 'profile']);
         Route::put('portal/profile', [PortalController::class, 'updateProfile']);
         Route::get('portal/applications', [PortalController::class, 'applications']);
+        Route::get('portal/offices', [OfficeController::class, 'index']);
+        Route::get('portal/positions', [PositionController::class, 'index']);
     });
 
     Route::prefix('sso')->group(function () {

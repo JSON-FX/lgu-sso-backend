@@ -29,11 +29,25 @@ it('denies application tokens on every central route even for administrators', f
     ['GET', '/api/v1/stats/dashboard', []],
     ['GET', '/api/v1/auth/me', []],
     ['GET', '/api/v1/portal/profile', []],
+    ['GET', '/api/v1/portal/offices', []],
+    ['GET', '/api/v1/portal/positions', []],
     ['POST', '/api/v1/auth/refresh', []],
     ['POST', '/api/v1/auth/logout-all', []],
     ['POST', '/api/v1/auth/change-password', []],
     ['POST', '/api/v1/sso/code', []],
 ]);
+
+it('lets central employee sessions read self-service office and active position options', function () {
+    \App\Models\Office::factory()->create(['name' => 'Municipal Health Office']);
+    \App\Models\Position::create(['title' => 'Health Officer', 'is_active' => true]);
+    \App\Models\Position::create(['title' => 'Retired Position', 'is_active' => false]);
+
+    $this->withToken($this->issueSsoToken($this->employee))
+        ->getJson('/api/v1/portal/offices')
+        ->assertOk()->assertJsonFragment(['name' => 'Municipal Health Office']);
+    $this->getJson('/api/v1/portal/positions')
+        ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.title', 'Health Officer');
+});
 
 it('rejects another application token and central tokens at consumer endpoints', function (string $method, string $route) {
     $other = Application::factory()->create();
