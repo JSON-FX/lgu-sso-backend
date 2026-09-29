@@ -11,10 +11,12 @@ use App\Http\Controllers\Api\V1\PortalController;
 use App\Http\Controllers\Api\V1\PositionController;
 use App\Http\Controllers\Api\V1\SsoAuthorizationCodeController;
 use App\Http\Controllers\Api\V1\SsoController;
+use App\Http\Controllers\Api\V1\SsoDirectoryController;
 use App\Http\Middleware\AuditLogger;
 use App\Http\Middleware\EnsureActiveSsoToken;
 use App\Http\Middleware\EnsureSsoAdministrator;
 use App\Http\Middleware\PerAppRateLimit;
+use App\Http\Middleware\PrivateDirectoryResponse;
 use App\Http\Middleware\ValidateAppCredentials;
 use Illuminate\Support\Facades\Route;
 
@@ -73,6 +75,11 @@ Route::prefix('v1')->group(function () {
     });
 
     Route::prefix('sso')->group(function () {
+        Route::prefix('directory')->middleware([PrivateDirectoryResponse::class, ValidateAppCredentials::class, PerAppRateLimit::class])->group(function () {
+            Route::get('/', [SsoDirectoryController::class, 'index']);
+            Route::get('{uuid}', [SsoDirectoryController::class, 'show']);
+        });
+
         // Portal redirect validation and central session inspection.
         Route::post('validate-redirect', [SsoController::class, 'validateRedirect']);
         Route::get('session-check', [SsoController::class, 'sessionCheck']);
