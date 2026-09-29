@@ -189,3 +189,7 @@ To roll back this initial installation, restore the saved proxy configuration an
 | SSO | `POST /api/v1/sso/validate-redirect`, `POST /api/v1/sso/code`, `POST /api/v1/sso/exchange`, `POST /api/v1/sso/validate`, `POST /api/v1/sso/authorize` |
 
 The portal sends authenticated API requests through its same-origin `/api/sso-backend/*` route. Consumer servers use the internal Docker API URL or the trusted public API URL. See the [portal runbook](../lgu-sso-portal/README.md) for browser session details.
+
+## Consumer directory
+
+Role-aware colleague discovery uses `GET /api/v1/sso/directory` and current recipient lookup uses `GET /api/v1/sso/directory/{uuid}`. Both require confidential application credentials and explicit role filters. See the [directory contract](docs/consumer-directory.md) for search, pagination, response fields, and revocation boundaries. The legacy `/sso/employees` response remains unchanged.
