@@ -8,7 +8,7 @@ COPY . .
 RUN composer dump-autoload --optimize --no-dev
 
 # Stage 2: Build frontend assets
-FROM node:20-alpine AS node
+FROM node:24-alpine AS node
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
@@ -40,7 +40,7 @@ EXPOSE 9000
 ENV SSO_SERVER_MODE=php-fpm
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
-FROM nginx:1.27-alpine AS production-web
+FROM nginx:1.30-alpine AS production-web
 COPY --from=production-app /app/public /app/public
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8080

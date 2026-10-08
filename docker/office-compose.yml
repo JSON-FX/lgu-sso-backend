@@ -1,0 +1,159 @@
+# Copy this file and backup.sh into the server's private SSO deployment directory.
+# Images must be built from the recorded backend and portal commits before startup.
+name: lgu-sso-production
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: lgu_sso
+      MYSQL_USER: lgu_sso
+      MYSQL_PASSWORD_FILE: /run/secrets/db_password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
+    secrets: [db_password, db_root_password]
+    volumes: [mysql-data:/var/lib/mysql]
+    networks: [data]
+    mem_limit: 768m
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  sso-backend:
+    image: ${SSO_BACKEND_IMAGE:?Set the immutable backend image}
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: https://api.sso.lguquezon.local
+      APP_KEY_FILE: /run/secrets/app_key
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: lgu_sso
+      DB_USERNAME: lgu_sso
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      LOG_CHANNEL: stderr
+      SESSION_DRIVER: database
+      SESSION_DOMAIN: api.sso.lguquezon.local
+      SESSION_SECURE_COOKIE: "true"
+      SSO_COOKIE_NAME: lgu_sso_token
+      SSO_COOKIE_DOMAIN: ""
+      SSO_COOKIE_SECURE: "true"
+      SSO_COOKIE_SAME_SITE: lax
+      SSO_ALLOWED_ORIGINS: https://sso.lguquezon.local
+      SSO_AUTO_SEED: "false"
+      SSO_SERVER_MODE: php-fpm
+      TRUSTED_PROXIES: "*"
+    secrets: [app_key, jwt_secret, db_password]
+    volumes: [backend-storage:/app/storage]
+    networks: [data, app]
+    mem_limit: 512m
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, php, -r, "exit((bool) @fsockopen('127.0.0.1', 9000) ? 0 : 1);"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  sso-web:
+    image: ${SSO_WEB_IMAGE:?Set the immutable backend web image}
+    volumes: [backend-storage:/app/storage:ro]
+    networks:
+      app:
+      ingress:
+        aliases: [lgu-sso-api]
+    mem_limit: 128m
+    depends_on:
+      sso-backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/up"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  sso-portal:
+    image: ${SSO_PORTAL_IMAGE:?Set the immutable portal image}
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      NEXT_PUBLIC_USE_MOCK_API: "false"
+      NEXT_PUBLIC_API_BASE_URL: https://api.sso.lguquezon.local/api/v1
+      NEXT_PUBLIC_SECURE_COOKIES: "true"
+      SSO_API_URL: http://sso-web:8080/api/v1
+      SSO_PORTAL_ORIGIN: https://sso.lguquezon.local
+      SSO_TRUST_PROXY_HEADERS: "true"
+    networks:
+      app:
+      ingress:
+        aliases: [lgu-sso-portal]
+    mem_limit: 512m
+    depends_on:
+      sso-web:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:3000/login"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  backup:
+    image: mysql:8.4
+    entrypoint: [/bin/sh, /usr/local/bin/sso-backup.sh]
+    environment:
+      MYSQL_USER: lgu_sso
+      MYSQL_DATABASE: lgu_sso
+      SSO_BACKUP_INTERVAL_SECONDS: "86400"
+      SSO_BACKUP_RETENTION_DAYS: "14"
+    secrets: [db_password]
+    volumes:
+      - ./backup.sh:/usr/local/bin/sso-backup.sh:ro
+      - ./backups:/backups
+      - backend-storage:/app/storage:ro
+    networks: [data]
+    mem_limit: 256m
+    depends_on:
+      sso-web:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD-SHELL, 'test -n "$$(find /backups/.last-success -mmin -1445 -print 2>/dev/null)"']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+networks:
+  app:
+  data:
+    internal: true
+  ingress:
+    external: true
+    name: lgu-sso-ingress
+
+volumes:
+  mysql-data:
+  backend-storage:
+
+secrets:
+  app_key:
+    file: ./secrets/app-key
+  jwt_secret:
+    file: ./secrets/jwt-secret
+  db_password:
+    file: ./secrets/db-password
+  db_root_password:
+    file: ./secrets/db-root-password
