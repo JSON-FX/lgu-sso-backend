@@ -1,0 +1,86 @@
+name: MIS SSO API images
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: mis-image-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      APP_ENV: testing
+      JWT_SECRET: isolated-ci-test-signing-key-never-used-by-any-deployment
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, intl, bcmath, pdo_sqlite, zip
+          coverage: none
+      - run: composer install --prefer-dist --no-interaction --no-progress
+      - name: Configure isolated tests
+        run: |
+          cp .env.example .env
+          php artisan key:generate --no-interaction
+      - run: php artisan test
+      - name: Check formatting of changed PHP files
+        run: |
+          vendor/bin/pint --dirty
+          git diff --exit-code
+
+  image:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: production-app
+            image: lgu-sso-backend
+            artifact: mis-image
+          - target: production-web
+            image: lgu-sso-web
+            artifact: mis-image-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the tested source
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64
+          tags: ${{ matrix.image }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          outputs: type=docker,dest=image.tar
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+      - name: Package immutable image
+        run: |
+          gzip image.tar
+          sha256sum image.tar.gz > image.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: ${{ matrix.artifact }}-${{ github.sha }}
+          path: |
+            image.tar.gz
+            image.tar.gz.sha256
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
