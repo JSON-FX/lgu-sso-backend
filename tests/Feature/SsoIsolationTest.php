@@ -38,7 +38,7 @@ it('denies application tokens on every central route even for administrators', f
 ]);
 
 it('lets central employee sessions read self-service office and active position options', function () {
-    \App\Models\Office::factory()->create(['name' => 'Municipal Health Office']);
+    \App\Models\Office::firstOrCreate(['name' => 'Municipal Health Office'], ['abbreviation' => 'MHO']);
     \App\Models\Position::create(['title' => 'Health Officer', 'is_active' => true]);
     \App\Models\Position::create(['title' => 'Retired Position', 'is_active' => false]);
 
