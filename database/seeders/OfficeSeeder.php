@@ -4,6 +4,8 @@ namespace Database\Seeders;
 
 use App\Models\Office;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+use RuntimeException;
 
 class OfficeSeeder extends Seeder
 {
@@ -19,7 +21,7 @@ class OfficeSeeder extends Seeder
             ['name' => 'Commission On Elections', 'abbreviation' => 'COMELEC', 'is_active' => true],
             ['name' => 'Civil Service Commission Field Office', 'abbreviation' => 'CSC-FO', 'is_active' => true],
             ['name' => 'Department of Interior And Local Government', 'abbreviation' => 'DILG', 'is_active' => true],
-            ['name' => 'Municipal Mayor\'s Office - General Services Division', 'abbreviation' => 'MMO-GSD', 'is_active' => true],
+            ['name' => 'Municipal Administrator\'s Office - General Services Division', 'abbreviation' => 'MAO-GSD', 'previous_abbreviation' => 'MMO-GSD', 'is_active' => true],
             ['name' => 'Human Resource Management Office', 'abbreviation' => 'HRMO', 'is_active' => true],
             ['name' => 'Kapit-Bisig Laban sa Kahirapan-Comprehensive and Integrated Delivery of Social Services', 'abbreviation' => 'KALAHI-CIDSS', 'is_active' => true],
             ['name' => 'Local School Board', 'abbreviation' => 'LSB', 'is_active' => true],
@@ -52,7 +54,7 @@ class OfficeSeeder extends Seeder
             ['name' => 'Nutrition Division', 'abbreviation' => 'MHO-NUTRITION', 'is_active' => true],
             ['name' => 'Population Development Division', 'abbreviation' => 'MHO-POPDEV', 'is_active' => true],
             ['name' => 'Municipal Mayor\'s Office - Barangay Affairs', 'abbreviation' => 'MMO-BA', 'is_active' => true],
-            ['name' => 'Municipal Mayor\'s Office - Business Permits And Licenses Division', 'abbreviation' => 'MMO-BPLD', 'is_active' => true],
+            ['name' => 'Municipal Administrator\'s Office - Business Permits And Licenses Division', 'abbreviation' => 'MAO-BPLD', 'previous_abbreviation' => 'MMO-BPLD', 'is_active' => true],
             ['name' => 'Municipal Mayor\'s Office - Community Affairs', 'abbreviation' => 'MMO-CA', 'is_active' => true],
             ['name' => 'Municipal Mayor\'s Office - ECCCO', 'abbreviation' => 'MMO-ECCCO', 'is_active' => true],
             ['name' => 'Municipal Mayor\'s Office - Heritage Hall', 'abbreviation' => 'MMO-HERITAGE', 'is_active' => true],
@@ -75,7 +77,7 @@ class OfficeSeeder extends Seeder
             ['name' => 'Municipal Mayor\'s Office - Tourism And Civil Affairs Section', 'abbreviation' => 'MMO-TCAS', 'is_active' => true],
             ['name' => 'Municipal Mayor\'s Office - Youth Development Section', 'abbreviation' => 'MMO-YDS', 'is_active' => true],
             ['name' => 'Bids And Awards Committee', 'abbreviation' => 'MMO-BAC', 'is_active' => true],
-            ['name' => 'Municipal Project Monitoring (standalone export entry)', 'abbreviation' => 'MMO-MPM-ALT', 'is_active' => true],
+            ['name' => 'Municipal Mayor\'s Office - Project Monitoring', 'abbreviation' => 'MMO-PM', 'previous_abbreviation' => 'MMO-MPM-ALT', 'is_active' => true],
             ['name' => 'Municipal Mayor\'s Office - Public Affairs, Information And Assistance Division', 'abbreviation' => 'MMO-PAIAD', 'is_active' => true],
             ['name' => 'Public Employment Service Office', 'abbreviation' => 'MMO-PESO', 'is_active' => true],
             ['name' => 'Municipal Planning And Development Office', 'abbreviation' => 'MPDO', 'is_active' => true],
@@ -87,28 +89,40 @@ class OfficeSeeder extends Seeder
             ['name' => 'Municipal Social Welfare And Development Office', 'abbreviation' => 'MSWDO', 'is_active' => true],
             ['name' => 'Municipal Treasurer\'s Office', 'abbreviation' => 'MTO', 'is_active' => true],
             ['name' => 'Municipal Administrator\'s Office', 'abbreviation' => 'MAO-ADMIN', 'is_active' => true],
-            ['name' => 'Municipal Public Safety Office (standalone export entry)', 'abbreviation' => 'MPSO-STANDALONE', 'is_active' => true],
+            ['name' => 'Municipal Public Safety Office (standalone export entry)', 'abbreviation' => 'MPSO-STANDALONE', 'is_active' => false],
             ['name' => 'Land Transportation Office', 'abbreviation' => 'NGA-LTO', 'is_active' => true],
             ['name' => 'Philippine Drug Enforcement Agency', 'abbreviation' => 'NGA-PDEA', 'is_active' => true],
             ['name' => 'Public Attorney\'s Office', 'abbreviation' => 'PAO', 'is_active' => true],
             ['name' => 'Post Office', 'abbreviation' => 'PHILPOST', 'is_active' => true],
             ['name' => 'Philippine National Police', 'abbreviation' => 'PNP', 'is_active' => true],
             ['name' => 'Provincial Prosecutor\'s Office', 'abbreviation' => 'PPO', 'is_active' => true],
-            ['name' => 'Quezon Health Center Infirmary', 'abbreviation' => 'MHO-QHCI', 'is_active' => true],
+            ['name' => 'Quezon Health Center Infirmary', 'abbreviation' => 'QHCI', 'previous_abbreviation' => 'MHO-QHCI', 'is_active' => true],
             ['name' => 'Sangguniang Bayan\'s Office', 'abbreviation' => 'SBO', 'is_active' => true],
         ];
 
-        foreach ($offices as $office) {
-            // Try to find by abbreviation first (handles renamed offices),
-            // then by name (handles offices with changed abbreviation)
-            $existing = Office::where('abbreviation', $office['abbreviation'])->first()
-                ?? Office::where('name', $office['name'])->first();
+        DB::transaction(function () use ($offices): void {
+            $importedIds = [];
+            foreach ($offices as $office) {
+                $previous = isset($office['previous_abbreviation'])
+                    ? Office::where('abbreviation', $office['previous_abbreviation'])->first()
+                    : null;
+                unset($office['previous_abbreviation']);
+                $current = Office::where('abbreviation', $office['abbreviation'])->first();
 
-            if ($existing) {
-                $existing->update($office);
-            } else {
-                Office::create($office);
+                if ($previous && $current && ! $previous->is($current)) {
+                    throw new RuntimeException('Office rename conflicts with an existing abbreviation: '.$office['abbreviation']);
+                }
+
+                $existing = $previous ?? $current ?? Office::where('name', $office['name'])->first();
+                if ($existing) {
+                    $existing->update($office);
+                } else {
+                    $existing = Office::create($office);
+                }
+                $importedIds[] = $existing->id;
             }
-        }
+
+            Office::whereNotIn('id', $importedIds)->update(['is_active' => false]);
+        });
     }
 }

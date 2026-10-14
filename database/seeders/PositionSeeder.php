@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Position;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class PositionSeeder extends Seeder
 {
@@ -318,8 +319,14 @@ class PositionSeeder extends Seeder
             'Zoning Officer II',
         ];
 
-        foreach ($positions as $title) {
-            Position::firstOrCreate(['title' => $title]);
-        }
+        $retired = ['Barangay Coordinator', 'Enforcer', 'Watchman'];
+
+        DB::transaction(function () use ($positions, $retired): void {
+            foreach ($positions as $title) {
+                Position::updateOrCreate(['title' => $title], ['is_active' => ! in_array($title, $retired, true)]);
+            }
+
+            Position::whereNotIn('title', $positions)->update(['is_active' => false]);
+        });
     }
 }

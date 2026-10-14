@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\PositionController;
 use App\Http\Controllers\Api\V1\SsoAuthorizationCodeController;
 use App\Http\Controllers\Api\V1\SsoController;
 use App\Http\Controllers\Api\V1\SsoDirectoryController;
+use App\Http\Controllers\Api\V1\SsoReferenceDirectoryController;
 use App\Http\Middleware\AuditLogger;
 use App\Http\Middleware\EnsureActiveSsoToken;
 use App\Http\Middleware\EnsureSsoAdministrator;
@@ -62,19 +63,31 @@ Route::prefix('v1')->group(function () {
             });
 
             Route::get('offices', [OfficeController::class, 'index']);
+            Route::post('offices', [OfficeController::class, 'store']);
             Route::get('offices/{office}', [OfficeController::class, 'show']);
+            Route::put('offices/{office}', [OfficeController::class, 'update']);
             Route::get('positions', [PositionController::class, 'index']);
+            Route::post('positions', [PositionController::class, 'store']);
+            Route::get('positions/{position}', [PositionController::class, 'show']);
+            Route::put('positions/{position}', [PositionController::class, 'update']);
         });
 
         // Portal (self-service)
         Route::get('portal/profile', [PortalController::class, 'profile']);
         Route::put('portal/profile', [PortalController::class, 'updateProfile']);
         Route::get('portal/applications', [PortalController::class, 'applications']);
-        Route::get('portal/offices', [OfficeController::class, 'index']);
-        Route::get('portal/positions', [PositionController::class, 'index']);
+        Route::get('portal/offices', [OfficeController::class, 'active']);
+        Route::get('portal/positions', [PositionController::class, 'active']);
     });
 
     Route::prefix('sso')->group(function () {
+        Route::middleware([PrivateDirectoryResponse::class, ValidateAppCredentials::class, PerAppRateLimit::class])->group(function () {
+            Route::get('offices', [SsoReferenceDirectoryController::class, 'offices']);
+            Route::get('offices/{id}', [SsoReferenceDirectoryController::class, 'office'])->whereNumber('id');
+            Route::get('positions', [SsoReferenceDirectoryController::class, 'positions']);
+            Route::get('positions/{id}', [SsoReferenceDirectoryController::class, 'position'])->whereNumber('id');
+        });
+
         Route::prefix('directory')->middleware([PrivateDirectoryResponse::class, ValidateAppCredentials::class, PerAppRateLimit::class])->group(function () {
             Route::get('/', [SsoDirectoryController::class, 'index']);
             Route::get('{uuid}', [SsoDirectoryController::class, 'show']);

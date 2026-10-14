@@ -68,7 +68,7 @@ class SsoDirectoryController extends Controller
     {
         return $request->attributes->get('application')->employees()
             ->where('employees.is_active', true)->where('employees.must_change_password', false)
-            ->wherePivotIn('role', $roles)->with('office');
+            ->wherePivotIn('role', $roles)->with(['office', 'position']);
     }
 
     private function display(Employee $employee): array
@@ -78,8 +78,11 @@ class SsoDirectoryController extends Controller
             'full_name' => $employee->full_name,
             'initials' => $employee->initials,
             'role' => $employee->pivot->role,
+            'office_id' => $employee->office?->id,
             'office_name' => $employee->office?->name,
             'office_abbreviation' => $employee->office?->abbreviation,
+            'position_id' => $employee->position?->id,
+            'position_title' => $employee->position?->title,
         ];
     }
 }

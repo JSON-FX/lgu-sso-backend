@@ -192,4 +192,34 @@ The portal sends authenticated API requests through its same-origin `/api/sso-ba
 
 ## Consumer directory
 
-Role-aware colleague discovery uses `GET /api/v1/sso/directory` and current recipient lookup uses `GET /api/v1/sso/directory/{uuid}`. Both require confidential application credentials and explicit role filters. See the [directory contract](docs/consumer-directory.md) for search, pagination, response fields, and revocation boundaries. The legacy `/sso/employees` response remains unchanged.
+Role-aware colleague discovery uses `GET /api/v1/sso/directory` and current recipient lookup uses `GET /api/v1/sso/directory/{uuid}`. Both require confidential application credentials and explicit role filters. See the [directory contract](docs/consumer-directory.md) for search, pagination, response fields, and revocation boundaries. The legacy `/sso/employees` response remains unchanged. Directory users include stable office and position references plus the current position title. `GET /api/v1/sso/offices` and `/api/v1/sso/positions` provide searchable, paginated active reference lists; append `/{id}` for current or historical metadata. Names and abbreviations stay separate. Apply the October 14 reference seeders explicitly after a backup; see the contract for local curl examples and data reconciliation.
+
+### Office administration
+
+The portal's Offices page uses the same office records as consumer reference and employee endpoints. All management routes require an active central SSO session, completed password setup, and a current `super_administrator` grant on the active **Admin App Management System** application. Application credentials or consumer bearer tokens cannot administer offices.
+
+| Method and route | Behavior |
+| --- | --- |
+| `GET /api/v1/offices` | Active offices by default; `include_inactive=1` includes inactive offices for administration. |
+| `GET /api/v1/offices/{id}` | Office details, including inactive offices. |
+| `POST /api/v1/offices` | Creates an active office from `name` and `abbreviation`; returns 201. |
+| `PUT /api/v1/offices/{id}` | Updates supplied `name`, `abbreviation`, or boolean `is_active`; returns 200. Omitted fields stay unchanged. |
+
+Responses contain `data: {id, name, abbreviation, is_active}`. Names and abbreviations are trimmed, required when supplied, and unique without regard to case, including inactive offices. Maximum lengths are 255 and 20 characters respectively. Invalid fields return 422 with field errors. New offices start active; omit `is_active` from creation requests. Successful mutations and their audit records are committed together.
+
+`/portal/offices` always remains active-only, even with `include_inactive=1`. After a management update, subsequent `/sso/offices` and employee-directory reads return current names and abbreviations. Deactivation removes an office from active lists while preserving its ID, assigned employees, and `/sso/offices/{id}` historical lookup. Reactivation returns it to active lists. Consumers that copy directory data must refresh their local copies; no synchronization push is sent. This feature requires no schema change or seeder run. Do not rerun the canonical office seeder to deploy office administration because it can overwrite managed office data.
+
+### Position administration
+
+The portal's Positions page manages the same records used by `GET /api/v1/sso/positions`, its historical detail route, and employee position references. It requires the same current central SSO super-administrator boundary as Offices. Application credentials and consumer bearers cannot write.
+
+| Method and route | Behavior |
+| --- | --- |
+| `GET /api/v1/positions` | Active positions by default; `include_inactive=1` includes inactive positions. |
+| `GET /api/v1/positions/{id}` | Position details, including inactive records. |
+| `POST /api/v1/positions` | Creates an active position from `title`; returns 201. |
+| `PUT /api/v1/positions/{id}` | Updates supplied `title` or boolean `is_active`; returns 200. |
+
+Responses contain `data: {id, title, is_active}`. The title is trimmed, required when supplied, case-insensitively unique including inactive positions, and at most 255 characters. Invalid values return 422 with field errors. Creation omits `is_active`; new positions start active. Writes and audit records commit together. Self-service `/portal/positions` always remains active-only even when a caller supplies `include_inactive=1`. Deactivation preserves the ID, employee assignments, and consumer historical detail lookup. Subsequent consumer and employee-directory reads show current titles and status. No schema migration, import, or seeder run is needed. The supplied October 8 export's 306 decoded titles match the existing seeder exactly.
+
+The administration pages export current Offices and Positions records to CSV, including inactive rows and stable IDs. Search and status filters do not narrow export. The CSVs contain reference metadata, not the dated employee counts from the supplied position export.
