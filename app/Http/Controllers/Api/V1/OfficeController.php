@@ -13,6 +13,7 @@ class OfficeController extends Controller
     public function index(): AnonymousResourceCollection
     {
         $offices = Office::query()
+            ->where('is_active', true)
             ->orderBy('name')
             ->get();
 

@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\PositionController;
 use App\Http\Controllers\Api\V1\SsoAuthorizationCodeController;
 use App\Http\Controllers\Api\V1\SsoController;
 use App\Http\Controllers\Api\V1\SsoDirectoryController;
+use App\Http\Controllers\Api\V1\SsoReferenceDirectoryController;
 use App\Http\Middleware\AuditLogger;
 use App\Http\Middleware\EnsureActiveSsoToken;
 use App\Http\Middleware\EnsureSsoAdministrator;
@@ -75,6 +76,13 @@ Route::prefix('v1')->group(function () {
     });
 
     Route::prefix('sso')->group(function () {
+        Route::middleware([PrivateDirectoryResponse::class, ValidateAppCredentials::class, PerAppRateLimit::class])->group(function () {
+            Route::get('offices', [SsoReferenceDirectoryController::class, 'offices']);
+            Route::get('offices/{id}', [SsoReferenceDirectoryController::class, 'office'])->whereNumber('id');
+            Route::get('positions', [SsoReferenceDirectoryController::class, 'positions']);
+            Route::get('positions/{id}', [SsoReferenceDirectoryController::class, 'position'])->whereNumber('id');
+        });
+
         Route::prefix('directory')->middleware([PrivateDirectoryResponse::class, ValidateAppCredentials::class, PerAppRateLimit::class])->group(function () {
             Route::get('/', [SsoDirectoryController::class, 'index']);
             Route::get('{uuid}', [SsoDirectoryController::class, 'show']);

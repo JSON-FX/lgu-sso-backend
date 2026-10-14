@@ -39,12 +39,14 @@ it('denies application tokens on every central route even for administrators', f
 
 it('lets central employee sessions read self-service office and active position options', function () {
     \App\Models\Office::firstOrCreate(['name' => 'Municipal Health Office'], ['abbreviation' => 'MHO']);
+    \App\Models\Office::create(['name' => 'Retired Office', 'abbreviation' => 'RETIRED', 'is_active' => false]);
     \App\Models\Position::create(['title' => 'Health Officer', 'is_active' => true]);
     \App\Models\Position::create(['title' => 'Retired Position', 'is_active' => false]);
 
     $this->withToken($this->issueSsoToken($this->employee))
         ->getJson('/api/v1/portal/offices')
-        ->assertOk()->assertJsonFragment(['name' => 'Municipal Health Office']);
+        ->assertOk()->assertJsonFragment(['name' => 'Municipal Health Office'])
+        ->assertJsonMissing(['name' => 'Retired Office']);
     $this->getJson('/api/v1/portal/positions')
         ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.title', 'Health Officer');
 });

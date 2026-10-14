@@ -41,7 +41,7 @@ it('projects only permitted display fields and current application roles across 
     expect($response->json('meta'))->toBe(['page' => 1, 'per_page' => 20, 'has_more' => false]);
     expect($response->headers->get('Cache-Control'))->toContain('no-store', 'private');
     foreach ($response->json('data') as $person) {
-        expect(array_keys($person))->toBe(['uuid', 'full_name', 'initials', 'role', 'office_name', 'office_abbreviation']);
+        expect(array_keys($person))->toBe(['uuid', 'full_name', 'initials', 'role', 'office_id', 'office_name', 'office_abbreviation', 'position_id', 'position_title']);
         expect($person['role'])->toBe($expected[$person['uuid']]);
     }
     // A caller-supplied application identifier cannot override the credentials' scope.
@@ -149,4 +149,27 @@ it('preserves the legacy employee directory array shape', function () {
     $employee = ($this->person)('guest');
     $this->getJson('/api/v1/sso/employees', $this->headers)->assertOk()->assertJsonCount(1)
         ->assertJsonPath('0.uuid', $employee->uuid)->assertJsonMissingPath('0.role')->assertJsonMissingPath('data');
+});
+
+it('returns stable office and position references without private employee details', function () {
+    $office = \App\Models\Office::factory()->create();
+    $position = \App\Models\Position::create(['title' => 'Engineer I']);
+    $employee = ($this->person)('standard', ['office_id' => $office->id, 'position_id' => $position->id]);
+    foreach ([['', 'data.0'], ['/'.$employee->uuid, 'data']] as [$suffix, $path]) {
+        $this->getJson(($this->url)([], $suffix), $this->headers)->assertOk()
+            ->assertJsonPath($path.'.office_id', $office->id)
+            ->assertJsonPath($path.'.position_id', $position->id)
+            ->assertJsonPath($path.'.position_title', 'Engineer I')
+            ->assertJsonMissingPath($path.'.birthday')->assertJsonMissingPath($path.'.email')
+            ->assertJsonMissingPath($path.'.residence')->assertJsonMissingPath($path.'.id');
+    }
+    $position->update(['title' => 'Engineer II', 'is_active' => false]);
+    $office->update(['is_active' => false]);
+    $this->getJson(($this->url)([], '/'.$employee->uuid), $this->headers)->assertOk()
+        ->assertJsonPath('data.position_id', $position->id)->assertJsonPath('data.position_title', 'Engineer II')
+        ->assertJsonPath('data.office_id', $office->id);
+    $employee->update(['office_id' => null, 'position_id' => null]);
+    $this->getJson(($this->url)([], '/'.$employee->uuid), $this->headers)->assertOk()
+        ->assertJsonPath('data.office_id', null)->assertJsonPath('data.position_id', null)
+        ->assertJsonPath('data.position_title', null);
 });
