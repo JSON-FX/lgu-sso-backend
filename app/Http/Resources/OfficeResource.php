@@ -13,6 +13,7 @@ class OfficeResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'abbreviation' => $this->abbreviation,
+            'is_active' => $this->is_active,
         ];
     }
 }

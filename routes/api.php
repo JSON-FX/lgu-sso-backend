@@ -63,16 +63,21 @@ Route::prefix('v1')->group(function () {
             });
 
             Route::get('offices', [OfficeController::class, 'index']);
+            Route::post('offices', [OfficeController::class, 'store']);
             Route::get('offices/{office}', [OfficeController::class, 'show']);
+            Route::put('offices/{office}', [OfficeController::class, 'update']);
             Route::get('positions', [PositionController::class, 'index']);
+            Route::post('positions', [PositionController::class, 'store']);
+            Route::get('positions/{position}', [PositionController::class, 'show']);
+            Route::put('positions/{position}', [PositionController::class, 'update']);
         });
 
         // Portal (self-service)
         Route::get('portal/profile', [PortalController::class, 'profile']);
         Route::put('portal/profile', [PortalController::class, 'updateProfile']);
         Route::get('portal/applications', [PortalController::class, 'applications']);
-        Route::get('portal/offices', [OfficeController::class, 'index']);
-        Route::get('portal/positions', [PositionController::class, 'index']);
+        Route::get('portal/offices', [OfficeController::class, 'active']);
+        Route::get('portal/positions', [PositionController::class, 'active']);
     });
 
     Route::prefix('sso')->group(function () {
