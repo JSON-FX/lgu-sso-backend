@@ -20,8 +20,9 @@ RUN npm run build
 FROM php:8.4-fpm-alpine AS production-app
 WORKDIR /app
 
-RUN apk add --no-cache libpng-dev oniguruma-dev libzip-dev icu-dev \
-    && docker-php-ext-install pdo_mysql bcmath mbstring zip intl pcntl \
+RUN apk add --no-cache libpng-dev libjpeg-turbo-dev libwebp-dev oniguruma-dev libzip-dev icu-dev \
+    && docker-php-ext-configure gd --with-jpeg --with-webp \
+    && docker-php-ext-install gd pdo_mysql bcmath mbstring zip intl pcntl \
     && addgroup -g 1001 -S laravel \
     && adduser -u 1001 -S laravel -G laravel
 
@@ -29,6 +30,7 @@ COPY . .
 COPY --from=composer /app/vendor ./vendor
 COPY --from=node /app/public/build ./public/build
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY docker/uploads.ini /usr/local/etc/php/conf.d/uploads.ini
 COPY docker/php-fpm.conf /usr/local/etc/php-fpm.d/zz-sso.conf
 
 RUN chown -R laravel:laravel /app \
@@ -51,17 +53,20 @@ WORKDIR /app
 
 # Install PHP extensions
 RUN apk add --no-cache \
-        libpng-dev \
+        libpng-dev libjpeg-turbo-dev libwebp-dev \
         oniguruma-dev \
         libzip-dev \
         icu-dev \
-    && docker-php-ext-install \
+    && docker-php-ext-configure gd --with-jpeg --with-webp \
+    && docker-php-ext-install gd \
         pdo_mysql \
         bcmath \
         mbstring \
         zip \
         intl \
         pcntl
+
+COPY docker/uploads.ini /usr/local/etc/php/conf.d/uploads.ini
 
 # Create non-root user
 RUN addgroup -g 1001 -S laravel && \

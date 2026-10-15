@@ -17,6 +17,8 @@ class EmployeeResource extends JsonResource
             'suffix' => $this->suffix,
             'full_name' => $this->full_name,
             'initials' => $this->initials,
+            'avatar_version' => $this->avatar_version,
+            'avatar_endpoint' => $this->avatar_version ? '/api/v1/sso/directory/'.$this->uuid.'/avatar' : null,
             'birthday' => $this->birthday?->format('Y-m-d'),
             'age' => $this->age,
             'civil_status' => $this->civil_status?->value,

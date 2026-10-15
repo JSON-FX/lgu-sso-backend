@@ -225,3 +225,7 @@ The portal's Positions page manages the same records used by `GET /api/v1/sso/po
 Responses contain `data: {id, title, is_active}`. The title is trimmed, required when supplied, case-insensitively unique including inactive positions, and at most 255 characters. Invalid values return 422 with field errors. Creation omits `is_active`; new positions start active. Writes and audit records commit together. Self-service `/portal/positions` always remains active-only even when a caller supplies `include_inactive=1`. Deactivation preserves the ID, employee assignments, and consumer historical detail lookup. Subsequent consumer and employee-directory reads show current titles and status. No schema migration, import, or seeder run is needed. The supplied October 8 export's 306 decoded titles match the existing seeder exactly.
 
 The administration pages export current Offices and Positions records to CSV, including inactive rows and stable IDs. Search and status filters do not narrow export. The CSVs contain reference metadata, not the dated employee counts from the supplied position export.
+
+### Shared profile photos
+
+Employees and SSO super administrators can upload, replace and remove the shared default photo. Applications read it through the confidential directory photo endpoint and may keep a local override. See [photo contract](docs/profile-photos.md).
