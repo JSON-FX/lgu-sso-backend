@@ -4,13 +4,20 @@ namespace App\Http\Middleware;
 
 use App\Models\Application;
 use Closure;
+use Illuminate\Cache\CacheManager;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class PerAppRateLimit
 {
-    public function __construct(protected RateLimiter $limiter) {}
+    public function __construct(protected RateLimiter $limiter, CacheManager $cache)
+    {
+        $store = config('sso.app_rate_limit_store');
+        if (is_string($store) && $store !== '') {
+            $this->limiter = new RateLimiter($cache->store($store));
+        }
+    }
 
     public function handle(Request $request, Closure $next): Response
     {
