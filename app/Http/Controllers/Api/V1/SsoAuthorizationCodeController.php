@@ -101,7 +101,7 @@ class SsoAuthorizationCodeController extends Controller
                 'access_token' => hash('sha256', $token),
             ]);
 
-            return response()->json(['access_token' => $token, 'token_type' => 'bearer', 'expires_in' => (int) config('jwt.ttl') * 60])->header('Cache-Control', 'no-store');
+            return response()->json(['access_token' => $token, 'token_type' => 'bearer', 'expires_in' => config('jwt.ttl') === null ? null : (int) config('jwt.ttl') * 60])->header('Cache-Control', 'no-store');
         });
     }
 }

@@ -29,6 +29,8 @@ The backend loads `lgu-sso-backend/.env`, then Compose overrides local URL, data
 
 Central cookies are host-only, Secure, and HttpOnly. The production portal uses `__Host-portal_session`. Consumers use authorization-code exchange and do not receive central cookies. OPTS and Chat are retired from the active stack; their source/data remain available for rebuilding. See the [integration contract](../lgu-sso-portal/LGU-SSO-INTEGRATION-GUIDE.md).
 
+The authorization-code exchange returns `expires_in` as seconds for a finite token lifetime, or JSON `null` when the configured JWT lifetime is unlimited and the token has no `exp` claim. A null lifetime does not grant indefinite application access: consumers must enforce their own bounded sessions and continue checking current authorization and revocation. Missing, zero, negative, or malformed expiry values are not the null contract.
+
 The September 29 migration revokes old sessions once to retire the shared-cookie contract. Users must sign in again. This is an intentional migration effect and cannot be reversed by restoring revoked credentials.
 
 ## Production Docker stack
