@@ -62,25 +62,29 @@ class AuthController extends Controller
             ], 401);
         }
 
-        $limiter->clear($accountKey);
+        $checkedPasswordHash = $employee->password;
 
-        $token = JWTAuth::fromUser($employee);
+        return DB::transaction(function () use ($employee, $checkedPasswordHash, $limiter, $accountKey): JsonResponse {
+            $employee = Employee::whereKey($employee->id)->lockForUpdate()->first();
+            if (! $employee || ! $employee->is_active || ! hash_equals($checkedPasswordHash, $employee->password)) {
+                return response()->json(['message' => 'Invalid credentials.'], 401);
+            }
 
-        OAuthToken::create([
-            'employee_id' => $employee->id,
-            'access_token' => hash('sha256', $token),
-        ]);
+            $limiter->clear($accountKey);
+            $token = JWTAuth::fromUser($employee);
+            OAuthToken::create([
+                'employee_id' => $employee->id,
+                'access_token' => hash('sha256', $token),
+            ]);
+            AuditLog::log('login', $employee);
 
-        AuditLog::log('login', $employee);
-
-        $response = response()->json([
-            'access_token' => $token,
-            'token_type' => 'bearer',
-            'expires_in' => (int) config('jwt.ttl') * 60,
-            'employee' => new EmployeeResource($employee),
-        ]);
-
-        return $this->attachSsoCookie($response, $token);
+            return $this->attachSsoCookie(response()->json([
+                'access_token' => $token,
+                'token_type' => 'bearer',
+                'expires_in' => (int) config('jwt.ttl') * 60,
+                'employee' => new EmployeeResource($employee),
+            ]), $token);
+        });
     }
 
     public function logout(): JsonResponse

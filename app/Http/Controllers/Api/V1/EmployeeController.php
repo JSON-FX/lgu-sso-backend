@@ -9,10 +9,13 @@ use App\Http\Requests\Employee\StoreEmployeeRequest;
 use App\Http\Requests\Employee\UpdateEmployeeRequest;
 use App\Http\Resources\EmployeeResource;
 use App\Models\Application;
+use App\Models\AuditLog;
 use App\Models\Employee;
+use App\Support\ActiveSsoToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -86,6 +89,35 @@ class EmployeeController extends Controller
             'message' => 'Employee updated successfully.',
             'data' => new EmployeeResource($employee->fresh()),
         ]);
+    }
+
+    public function resetPassword(Request $request, Employee $employee): JsonResponse
+    {
+        $actorId = $request->user('api')->id;
+        abort_if($actorId === $employee->id, 422, 'Use Change password to update your own password.');
+
+        return DB::transaction(function () use ($request, $employee, $actorId): JsonResponse {
+            $employees = Employee::whereIn('id', [$actorId, $employee->id])->orderBy('id')->lockForUpdate()->get();
+            $actor = $employees->firstWhere('id', $actorId);
+            $target = $employees->firstWhere('id', $employee->id);
+            $session = $actor ? ActiveSsoToken::find($request->bearerToken(), $actor->id) : null;
+            abort_unless($actor && $actor->is_active && $session, 401, 'Unauthenticated.');
+            abort_unless($session->application_id === null && ! $actor->must_change_password
+                && $actor->applications()->where('name', 'Admin App Management System')->where('is_active', true)
+                    ->wherePivot('role', AppRole::SuperAdministrator->value)->exists(), 403, 'Forbidden.');
+            abort_unless($target, 404, 'Employee not found.');
+
+            $temporaryPassword = Str::random(20);
+            $target->update(['password' => $temporaryPassword, 'must_change_password' => true]);
+            $target->revokeSessions();
+            AuditLog::log('employee_password_reset', $actor, metadata: ['employee_uuid' => $target->uuid]);
+
+            return response()->json([
+                'message' => 'Password reset. The employee must choose a new password at next sign-in.',
+                'data' => ['uuid' => $target->uuid, 'username' => $target->username, 'must_change_password' => true],
+                'temporary_password' => $temporaryPassword,
+            ])->header('Cache-Control', 'private, no-store');
+        });
     }
 
     public function destroy(Employee $employee): JsonResponse

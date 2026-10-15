@@ -186,9 +186,9 @@ it('requires authentication for protected routes', function () {
     $response->assertUnauthorized();
 });
 
-it('does not allow public registration', function () {
+it('requires complete details for public registration', function () {
     $this->postJson('/api/v1/auth/register', [
         'first_name' => 'Public',
         'last_name' => 'User',
-    ])->assertNotFound();
+    ])->assertUnprocessable()->assertJsonValidationErrors(['email', 'password', 'birthday']);
 });

@@ -187,13 +187,13 @@ class Employee extends Authenticatable implements JWTSubject
 
     public static function generateUsername(string $firstName, string $lastName): string
     {
-        $firstInitial = strtolower(substr($firstName, 0, 1));
-        $normalizedLastName = strtolower(str_replace(' ', '', $lastName));
-        $baseUsername = "{$firstInitial}.{$normalizedLastName}";
+        $firstInitial = Str::lower(Str::substr($firstName, 0, 1));
+        $normalizedLastName = Str::lower(str_replace(' ', '', $lastName));
+        $baseUsername = Str::substr("{$firstInitial}.{$normalizedLastName}", 0, 240);
         $username = $baseUsername;
         $counter = 1;
 
-        while (static::where('username', $username)->exists()) {
+        while (static::withTrashed()->where('username', $username)->exists()) {
             $counter++;
             $username = "{$baseUsername}{$counter}";
         }

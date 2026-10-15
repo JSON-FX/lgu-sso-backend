@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\OfficeController;
 use App\Http\Controllers\Api\V1\PortalController;
 use App\Http\Controllers\Api\V1\PositionController;
+use App\Http\Controllers\Api\V1\RegistrationController;
 use App\Http\Controllers\Api\V1\SsoAuthorizationCodeController;
 use App\Http\Controllers\Api\V1\SsoController;
 use App\Http\Controllers\Api\V1\SsoDirectoryController;
@@ -26,6 +27,8 @@ Route::model('employee', \App\Models\Employee::class);
 
 Route::prefix('v1')->group(function () {
     Route::prefix('auth')->group(function () {
+        Route::get('registration-options', [RegistrationController::class, 'options'])->middleware('throttle:60,1');
+        Route::post('register', [RegistrationController::class, 'store'])->middleware('throttle:5,1');
         Route::post('login', [AuthController::class, 'login'])
             ->middleware(AuditLogger::class);
 
@@ -46,6 +49,7 @@ Route::prefix('v1')->group(function () {
             Route::get('stats/dashboard', DashboardStatsController::class);
             Route::apiResource('employees', EmployeeController::class);
             Route::prefix('employees/{employee}')->group(function () {
+                Route::post('reset-password', [EmployeeController::class, 'resetPassword'])->middleware('throttle:20,1');
                 Route::get('avatar', [EmployeeAvatarController::class, 'show']);
                 Route::post('avatar', [EmployeeAvatarController::class, 'store'])->middleware('throttle:20,1');
                 Route::delete('avatar', [EmployeeAvatarController::class, 'destroy'])->middleware('throttle:20,1');
