@@ -53,6 +53,36 @@ it('exchanges a code once for a server-side bearer token', function () {
     ], $this->clientHeaders)->assertUnauthorized();
 });
 
+it('reports the issued token lifetime without treating no expiry as zero', function (?int $ttl, ?int $seconds) {
+    config(['jwt.ttl' => $ttl]);
+    JWTAuth::factory()->setTTL($ttl);
+    $code = issueAuthorizationCode($this);
+
+    $exchange = $this->postJson('/api/v1/sso/exchange', [
+        'code' => $code,
+        'redirect_uri' => 'https://consumer.example/sso/callback',
+    ], $this->clientHeaders);
+    $exchange->assertOk()
+        ->assertJsonStructure(['access_token', 'token_type', 'expires_in'])
+        ->assertJsonPath('expires_in', $seconds);
+    expect($exchange->headers->get('Cache-Control'))->toContain('no-store');
+    $payload = JWTAuth::setToken($exchange->json('access_token'))->getPayload();
+
+    if ($seconds === null) {
+        expect($payload->toArray())->not->toHaveKey('exp');
+    } else {
+        expect($payload->get('exp') - $payload->get('iat'))->toBe($seconds)
+            ->and($seconds)->toBeGreaterThan(0);
+    }
+
+    $this->postJson('/api/v1/sso/authorize', ['token' => $exchange->json('access_token')], $this->clientHeaders)
+        ->assertOk()->assertJsonPath('authorized', true);
+})->with([
+    'nonexpiring token' => [null, null],
+    'one minute token' => [1, 60],
+    'one hour token' => [60, 3600],
+]);
+
 it('binds the code to the exact client and redirect uri', function () {
     $code = issueAuthorizationCode($this);
     $this->postJson('/api/v1/sso/exchange', [
