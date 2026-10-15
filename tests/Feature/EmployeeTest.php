@@ -103,6 +103,10 @@ it('can create an employee', function () {
             'last_name' => 'Doe',
             'birthday' => '1990-01-15',
             'civil_status' => 'single',
+            'region' => 'Northern Mindanao',
+            'province' => 'Bukidnon',
+            'city' => 'Quezon',
+            'barangay' => 'Poblacion',
             'residence' => '123 Test Street',
             'nationality' => 'Filipino',
             'email' => 'john.doe@example.com',
@@ -113,6 +117,52 @@ it('can create an employee', function () {
         ->assertJsonPath('data.first_name', 'John')
         ->assertJsonPath('data.email', 'john.doe@example.com');
 });
+
+it('creates an employee with geographic location and no street details', function () {
+    $this->asSsoAdmin($this->admin)->postJson('/api/v1/employees', [
+        'first_name' => 'Jane', 'last_name' => 'Doe', 'birthday' => '1990-01-15',
+        'civil_status' => 'married', 'nationality' => 'Filipino',
+        'region' => 'Northern Mindanao', 'province' => 'Bukidnon',
+        'city' => 'Quezon', 'barangay' => 'Poblacion',
+    ])->assertCreated()->assertJsonPath('data.residence', null)
+        ->assertJsonPath('data.house_number', null)->assertJsonPath('data.block_number', null)
+        ->assertJsonPath('data.building_floor', null)->assertJsonPath('data.city', 'Quezon');
+});
+
+it('requires every geographic field when creating an employee', function (string $field, mixed $value) {
+    $data = [
+        'first_name' => 'Jane', 'last_name' => 'Doe', 'birthday' => '1990-01-15',
+        'civil_status' => 'married', 'nationality' => 'Filipino',
+        'region' => 'Northern Mindanao', 'province' => 'Bukidnon',
+        'city' => 'Quezon', 'barangay' => 'Poblacion',
+    ];
+    if ($value === 'omitted') {
+        unset($data[$field]);
+    } else {
+        $data[$field] = $value;
+    }
+    $this->asSsoAdmin($this->admin)->postJson('/api/v1/employees', $data)
+        ->assertUnprocessable()->assertJsonValidationErrors($field);
+    expect(Employee::count())->toBe(1);
+})->with(['region', 'province', 'city', 'barangay'])->with(['omitted', '', null]);
+
+it('clears optional street details without clearing the geographic location', function () {
+    $employee = Employee::factory()->create([
+        'region' => 'Northern Mindanao', 'province' => 'Bukidnon', 'city' => 'Quezon', 'barangay' => 'Poblacion',
+        'house_number' => '42', 'block_number' => 'A', 'building_floor' => '2',
+    ]);
+    $this->asSsoAdmin($this->admin)->putJson("/api/v1/employees/{$employee->uuid}", [
+        'residence' => '', 'house_number' => '', 'block_number' => '', 'building_floor' => '',
+    ])->assertSuccessful()->assertJsonPath('data.residence', null)
+        ->assertJsonPath('data.house_number', null)->assertJsonPath('data.block_number', null)
+        ->assertJsonPath('data.building_floor', null)->assertJsonPath('data.barangay', 'Poblacion');
+});
+
+it('rejects clearing supplied geographic fields on a partial employee update', function (string $field) {
+    $employee = Employee::factory()->create();
+    $this->asSsoAdmin($this->admin)->putJson("/api/v1/employees/{$employee->uuid}", [$field => null])
+        ->assertUnprocessable()->assertJsonValidationErrors($field);
+})->with(['region', 'province', 'city', 'barangay']);
 
 it('can show an employee', function () {
     $employee = Employee::factory()->create();
