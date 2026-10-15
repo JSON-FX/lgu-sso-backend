@@ -15,7 +15,7 @@ beforeEach(function () {
 
 it('lists only active offices with separate abbreviations and resolves inactive historical IDs', function () {
     $office = Office::factory()->create(['name' => 'Municipal Engineering Office', 'abbreviation' => 'MEO', 'is_active' => true]);
-    $retired = Office::factory()->create(['is_active' => false]);
+    $retired = Office::factory()->create(['name' => 'Retired Reference Office', 'abbreviation' => 'RETIRED', 'is_active' => false]);
     $expected = ['id' => $office->id, 'name' => $office->name, 'abbreviation' => 'MEO', 'is_active' => true];
     $response = $this->getJson('/api/v1/sso/offices', $this->headers)->assertOk()->assertExactJson([
         'data' => [$expected], 'meta' => ['page' => 1, 'per_page' => 50, 'has_more' => false],

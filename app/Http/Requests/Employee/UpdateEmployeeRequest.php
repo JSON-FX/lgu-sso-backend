@@ -5,7 +5,6 @@ namespace App\Http\Requests\Employee;
 use App\Enums\CivilStatus;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Rules\Password;
 
 class UpdateEmployeeRequest extends FormRequest
 {
@@ -35,7 +34,8 @@ class UpdateEmployeeRequest extends FormRequest
             'house_number' => ['nullable', 'string', 'max:50'],
             'nationality' => ['sometimes', 'string', 'max:100'],
             'email' => ['sometimes', 'email', Rule::unique('employees', 'email')->ignore($employee)],
-            'password' => ['sometimes', Password::defaults()],
+            'password' => ['prohibited'],
+            'must_change_password' => ['prohibited'],
             'is_active' => ['sometimes', 'boolean'],
             'office_id' => ['nullable', 'integer', 'exists:offices,id'],
             'position_id' => ['sometimes', 'nullable', 'integer', 'exists:positions,id'],

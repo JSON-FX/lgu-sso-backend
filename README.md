@@ -99,7 +99,7 @@ sso_cli sso:bootstrap-admin \
   --client-secret-file=/run/bootstrap/portal-client-secret
 ```
 
-Replace the identity fields and HTTPS portal host before running the command. Record the returned username and client ID. At first login, the administrator must change the initial password. Administrators then create ordinary accounts in the portal; public registration is disabled.
+Replace the identity fields and HTTPS portal host before running the command. Record the returned username and client ID. At first login, the administrator must change the initial password. Administrators can create accounts in the portal. Public self-registration also lets anyone who can reach the registration page create an account and select applications. The backend assigns LGU Connect Standard and other selected applications Guest; Admin App Management System is never selectable. Only a superadministrator can change application roles.
 
 Rotate any administrator password or client secret carried forward from local seed data before sharing that environment. These commands read replacement values from files and do not print them:
 
@@ -231,3 +231,12 @@ The administration pages export current Offices and Positions records to CSV, in
 ### Shared profile photos
 
 Employees and SSO super administrators can upload, replace and remove the shared default photo. Applications read it through the confidential directory photo endpoint and may keep a local override. See [photo contract](docs/profile-photos.md).
+
+
+## Self-registration and password recovery
+
+- `GET /api/v1/auth/registration-options` returns a minimal public catalog of active applications, offices and positions. It excludes credentials, redirects and memberships.
+- `POST /api/v1/auth/register` accepts personal/address details, a unique email, a chosen password with confirmation, optional active office/position and distinct application UUIDs. The password must contain letters and numbers, have at least 8 characters, and fit within 72 UTF-8 bytes. Registration is limited to 5 attempts per minute. It returns the generated username and default grants, without creating a session.
+- `POST /api/v1/employees/{uuid}/reset-password` requires a current central superadministrator session. It returns a temporary password once, revokes the employee's existing sessions/codes, and requires a different personal password before protected access. It cannot reset the acting administrator's own account or reactivate an inactive account. Generic employee updates cannot set passwords or the setup flag.
+
+Open self-registration does not verify identity, email ownership or employment. Office and position are self-reported. Consumers continue enforcing their own business permissions. Credentials are excluded from audit metadata; registration and recovery responses are not cacheable.
