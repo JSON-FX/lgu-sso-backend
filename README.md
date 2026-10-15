@@ -2,6 +2,8 @@
 
 Laravel 12 authentication API for the LGU platform. It owns employee accounts, application access, and single sign-on (SSO). Only SSO administrators can create accounts.
 
+Employee creation requires region, province, city/municipality and barangay names. Street address (`residence`), house/lot number, block and building/floor are optional; omitted or cleared street details are returned as `null`. Administrative partial updates preserve omitted location fields and reject blank supplied location names. The October 15 nullable-residence migration preserves existing data. An image rollback retains that permissive column; do not reverse the migration without reviewing null or long addresses first.
+
 The companion [lgu-sso-portal](../lgu-sso-portal/README.md) provides login and administration. Both repositories are built from the [workspace Compose files](../docker-compose.yml).
 
 ## Local Docker stack
