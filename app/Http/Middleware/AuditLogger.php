@@ -22,7 +22,7 @@ class AuditLogger
 
     protected function logRequest(Request $request, Response $response): void
     {
-        $employee = $request->user();
+        $employee = $request->attributes->get('sso_audit_employee') ?? $request->user();
         $application = $request->attributes->get('application');
         $action = $this->determineAction($request);
 

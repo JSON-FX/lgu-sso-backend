@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\EmployeeResource;
 use App\Http\Traits\SetsSsoCookie;
 use App\Models\Application;
-use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Support\ActiveSsoToken;
 use Illuminate\Http\JsonResponse;
@@ -39,6 +38,8 @@ class SsoController extends Controller
                 return response()->json(['valid' => false, 'authorized' => false, 'message' => 'Application access denied.'], 403);
             }
 
+            $request->attributes->set('sso_audit_employee', $employee);
+
             return $employee;
         } catch (JWTException $exception) {
             return response()->json(['valid' => false, 'authorized' => false, 'message' => 'Invalid or expired token.'], 401);
@@ -53,7 +54,6 @@ class SsoController extends Controller
         }
 
         $application = $request->attributes->get('application');
-        AuditLog::log('token_validate', $employee, $application);
         $employee->load(['office', 'position', 'applications' => fn ($query) => $query->where('applications.id', $application->id)]);
 
         return response()->json(['valid' => true, 'data' => new EmployeeResource($employee)]);
@@ -67,7 +67,6 @@ class SsoController extends Controller
         }
 
         $application = $request->attributes->get('application');
-        AuditLog::log('app_authorize', $employee, $application);
 
         return response()->json([
             'authorized' => true,

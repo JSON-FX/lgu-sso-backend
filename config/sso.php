@@ -2,6 +2,9 @@
 
 return [
 
+    // Optional application-counter store; login and registration keep their existing limiter.
+    'app_rate_limit_store' => env('SSO_APP_RATE_LIMIT_STORE'),
+
     /*
     |--------------------------------------------------------------------------
     | SSO Cookie Name

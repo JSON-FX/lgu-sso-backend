@@ -1,6 +1,18 @@
 # lgu-sso-backend
 
-Laravel 12 authentication API for the LGU platform. It owns employee accounts, application access, and single sign-on (SSO). Only SSO administrators can create accounts.
+Laravel 12 authentication API for the LGU platform. It owns employee accounts, application access, and single sign-on (SSO). Public registration grants only Standard access to LGU Connect and Guest access to other selected public applications. Super administrators manage elevated access.
+
+## Request accounting and optional counter storage
+
+Successful `/api/v1/sso/authorize` and `/api/v1/sso/validate` requests produce one audit event with the verified employee, application, method, path and response status. Rejected checks remain audited without trusting a submitted employee identity. Tokens and client secrets are not audit metadata. Current token, employee, password-setup and application-grant checks still run on every request; an audit event is not an authorization cache.
+
+`SSO_APP_RATE_LIMIT_STORE` optionally selects a configured Laravel cache store for **application rate counters only**. When unset, the original framework limiter and existing counters are used. For example, `SSO_APP_RATE_LIMIT_STORE=redis` selects `cache.stores.redis`. Login and registration continue using their original framework limiter; setting this option does not change their store, thresholds or counter state. A selected store failure is not allowed to fall back to an empty budget or grant access.
+
+This selector does not provision Redis or install a client. Before enabling Redis, supply a compatible PhpRedis extension (or explicitly installed/configured Predis), a dedicated secured Redis connection/key namespace, and an appropriate memory/persistence policy. The current Dockerfile does not install PhpRedis. Keep the option unset until a separately validated runtime supports it. Do not point SSO at a consumer's Redis without isolation and capacity planning.
+
+Changing stores does not migrate counters. A future approved cutover must preserve active counters and remaining TTLs or drain the existing 60-second application window before accepting traffic on the new store. Rollback has the same consideration. Do not clear the default cache or login counters. Moving counters does not raise per-application limits, cache authorization, or guarantee strict atomic admission: the existing check-and-hit framework behavior remains unchanged. Capacity and concurrency must be measured before changing production limits.
+
+Registration choices and submissions have distinct throttle keys: 60 choice loads/minute and five submissions/minute. Loading choices no longer consumes submission attempts. Both limits remain scoped by the framework's request identity. Introducing these prefixes creates new registration keys; an approved release must account for the old one-minute window when switching. Account login protection remains five failed attempts/account and twenty/IP within fifteen minutes, and is independent of these keys and application budgets.
 
 Employee creation requires region, province, city/municipality and barangay names. Street address (`residence`), house/lot number, block and building/floor are optional; omitted or cleared street details are returned as `null`. Administrative partial updates preserve omitted location fields and reject blank supplied location names. The October 15 nullable-residence migration preserves existing data. An image rollback retains that permissive column; do not reverse the migration without reviewing null or long addresses first.
 

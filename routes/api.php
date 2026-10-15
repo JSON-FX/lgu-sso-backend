@@ -27,8 +27,8 @@ Route::model('employee', \App\Models\Employee::class);
 
 Route::prefix('v1')->group(function () {
     Route::prefix('auth')->group(function () {
-        Route::get('registration-options', [RegistrationController::class, 'options'])->middleware('throttle:60,1');
-        Route::post('register', [RegistrationController::class, 'store'])->middleware('throttle:5,1');
+        Route::get('registration-options', [RegistrationController::class, 'options'])->middleware('throttle:60,1,registration-options:');
+        Route::post('register', [RegistrationController::class, 'store'])->middleware('throttle:5,1,registration-submit:');
         Route::post('login', [AuthController::class, 'login'])
             ->middleware(AuditLogger::class);
 
