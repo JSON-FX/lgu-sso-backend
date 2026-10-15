@@ -56,6 +56,17 @@ class SsoDirectoryController extends Controller
         return response()->json(['data' => $this->display($employee)]);
     }
 
+    public function avatar(Request $request, string $uuid, \App\Services\EmployeeAvatars $avatars)
+    {
+        $input = $request->validate($this->roleRules());
+        $employee = Str::isUuid($uuid)
+            ? $this->employees($request, $input['roles'])->where('employees.uuid', $uuid)->first()
+            : null;
+        abort_unless($employee, 404, 'Employee not found.');
+
+        return $avatars->response($employee);
+    }
+
     private function roleRules(): array
     {
         return [
@@ -77,6 +88,8 @@ class SsoDirectoryController extends Controller
             'uuid' => $employee->uuid,
             'full_name' => $employee->full_name,
             'initials' => $employee->initials,
+            'avatar_version' => $employee->avatar_version,
+            'avatar_endpoint' => $employee->avatar_version ? '/api/v1/sso/directory/'.$employee->uuid.'/avatar' : null,
             'role' => $employee->pivot->role,
             'office_id' => $employee->office?->id,
             'office_name' => $employee->office?->name,

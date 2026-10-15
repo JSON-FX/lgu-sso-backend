@@ -41,7 +41,7 @@ it('projects only permitted display fields and current application roles across 
     expect($response->json('meta'))->toBe(['page' => 1, 'per_page' => 20, 'has_more' => false]);
     expect($response->headers->get('Cache-Control'))->toContain('no-store', 'private');
     foreach ($response->json('data') as $person) {
-        expect(array_keys($person))->toBe(['uuid', 'full_name', 'initials', 'role', 'office_id', 'office_name', 'office_abbreviation', 'position_id', 'position_title']);
+        expect(array_keys($person))->toBe(['uuid', 'full_name', 'initials', 'avatar_version', 'avatar_endpoint', 'role', 'office_id', 'office_name', 'office_abbreviation', 'position_id', 'position_title']);
         expect($person['role'])->toBe($expected[$person['uuid']]);
     }
     // A caller-supplied application identifier cannot override the credentials' scope.

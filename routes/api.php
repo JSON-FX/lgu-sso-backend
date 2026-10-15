@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\ApplicationController;
 use App\Http\Controllers\Api\V1\AuditController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DashboardStatsController;
+use App\Http\Controllers\Api\V1\EmployeeAvatarController;
 use App\Http\Controllers\Api\V1\EmployeeController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\OfficeController;
@@ -20,6 +21,8 @@ use App\Http\Middleware\PerAppRateLimit;
 use App\Http\Middleware\PrivateDirectoryResponse;
 use App\Http\Middleware\ValidateAppCredentials;
 use Illuminate\Support\Facades\Route;
+
+Route::model('employee', \App\Models\Employee::class);
 
 Route::prefix('v1')->group(function () {
     Route::prefix('auth')->group(function () {
@@ -43,6 +46,9 @@ Route::prefix('v1')->group(function () {
             Route::get('stats/dashboard', DashboardStatsController::class);
             Route::apiResource('employees', EmployeeController::class);
             Route::prefix('employees/{employee}')->group(function () {
+                Route::get('avatar', [EmployeeAvatarController::class, 'show']);
+                Route::post('avatar', [EmployeeAvatarController::class, 'store'])->middleware('throttle:20,1');
+                Route::delete('avatar', [EmployeeAvatarController::class, 'destroy'])->middleware('throttle:20,1');
                 Route::get('applications', [EmployeeController::class, 'applications']);
                 Route::post('applications', [EmployeeController::class, 'grantAccess']);
                 Route::put('applications/{application}', [EmployeeController::class, 'updateAccess']);
@@ -73,6 +79,9 @@ Route::prefix('v1')->group(function () {
         });
 
         // Portal (self-service)
+        Route::get('portal/profile/avatar', [EmployeeAvatarController::class, 'show']);
+        Route::post('portal/profile/avatar', [EmployeeAvatarController::class, 'store'])->middleware('throttle:20,1');
+        Route::delete('portal/profile/avatar', [EmployeeAvatarController::class, 'destroy'])->middleware('throttle:20,1');
         Route::get('portal/profile', [PortalController::class, 'profile']);
         Route::put('portal/profile', [PortalController::class, 'updateProfile']);
         Route::get('portal/applications', [PortalController::class, 'applications']);
@@ -91,6 +100,7 @@ Route::prefix('v1')->group(function () {
         Route::prefix('directory')->middleware([PrivateDirectoryResponse::class, ValidateAppCredentials::class, PerAppRateLimit::class])->group(function () {
             Route::get('/', [SsoDirectoryController::class, 'index']);
             Route::get('{uuid}', [SsoDirectoryController::class, 'show']);
+            Route::get('{uuid}/avatar', [SsoDirectoryController::class, 'avatar']);
         });
 
         // Portal redirect validation and central session inspection.

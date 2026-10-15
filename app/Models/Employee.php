@@ -50,6 +50,7 @@ class Employee extends Authenticatable implements JWTSubject
 
     protected $hidden = [
         'password',
+        'avatar_path',
     ];
 
     protected function casts(): array
