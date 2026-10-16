@@ -208,6 +208,8 @@ The portal sends authenticated API requests through its same-origin `/api/sso-ba
 
 ## Consumer directory
 
+Directory lists support optional `office_id` and `position_id` filters before pagination. Search matches name parts, office names/abbreviations and position titles within the requesting application's current grants. Filtered responses acknowledge ID filters with `meta.filters_applied: true`; consumers must verify that acknowledgment before displaying filtered results. See the contract below for validation and compatibility behavior.
+
 Role-aware colleague discovery uses `GET /api/v1/sso/directory` and current recipient lookup uses `GET /api/v1/sso/directory/{uuid}`. Both require confidential application credentials and explicit role filters. See the [directory contract](docs/consumer-directory.md) for search, pagination, response fields, and revocation boundaries. The legacy `/sso/employees` response remains unchanged. Directory users include stable office and position references plus the current position title. `GET /api/v1/sso/offices` and `/api/v1/sso/positions` provide searchable, paginated active reference lists; append `/{id}` for current or historical metadata. Names and abbreviations stay separate. Apply the October 14 reference seeders explicitly after a backup; see the contract for local curl examples and data reconciliation.
 
 ### Office administration

@@ -2,6 +2,8 @@
 
 use App\Models\Application;
 use App\Models\Employee;
+use App\Models\Office;
+use App\Models\Position;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -87,7 +89,96 @@ it('rejects invalid query bounds and roles', function (array $query) {
     [['search' => str_repeat('a', 101)]], [['search' => ['name']]],
     [['page' => 0]], [['page' => 10001]], [['page' => '1.5']],
     [['per_page' => 0]], [['per_page' => 51]],
+    [['office_id' => '']], [['office_id' => 0]], [['office_id' => -1]],
+    [['office_id' => '1.5']], [['office_id' => 'invalid']], [['office_id' => [1]]],
+    [['position_id' => '']], [['position_id' => 0]], [['position_id' => -1]],
+    [['position_id' => '1.5']], [['position_id' => 'invalid']], [['position_id' => [1]]],
 ]);
+
+it('filters office and position independently and together before pagination', function () {
+    $office = Office::factory()->create(['is_active' => false]);
+    $otherOffice = Office::factory()->create();
+    $position = Position::create(['title' => 'Engineer', 'is_active' => false]);
+    $otherPosition = Position::create(['title' => 'Clerk']);
+    $first = ($this->person)('standard', ['last_name' => 'Bravo', 'office_id' => $office->id, 'position_id' => $position->id]);
+    $second = ($this->person)('administrator', ['last_name' => 'Delta', 'office_id' => $office->id, 'position_id' => $position->id]);
+    $officeOnly = ($this->person)('standard', ['last_name' => 'Charlie', 'office_id' => $office->id, 'position_id' => $otherPosition->id]);
+    $positionOnly = ($this->person)('standard', ['last_name' => 'Alpha', 'office_id' => $otherOffice->id, 'position_id' => $position->id]);
+    ($this->person)('standard', ['last_name' => 'Aardvark', 'office_id' => $otherOffice->id, 'position_id' => $otherPosition->id]);
+
+    foreach ([
+        [['office_id' => $office->id], [$first->uuid, $officeOnly->uuid, $second->uuid]],
+        [['position_id' => $position->id], [$positionOnly->uuid, $first->uuid, $second->uuid]],
+        [['office_id' => $office->id, 'position_id' => $position->id], [$first->uuid, $second->uuid]],
+        [['office_id' => $office->id, 'position_id' => $position->id, 'search' => 'Delta Engineer'], [$second->uuid]],
+        [['office_id' => 999999], []],
+        [['position_id' => 999999], []],
+    ] as [$filters, $expected]) {
+        for ($page = 1; $page <= count($expected) + 1; $page++) {
+            $response = $this->getJson(($this->url)([...$filters, 'page' => $page, 'per_page' => 1]), $this->headers)->assertOk();
+            expect(array_column($response->json('data'), 'uuid'))->toBe(array_slice($expected, $page - 1, 1));
+            expect($response->json('meta'))->toBe([
+                'page' => $page, 'per_page' => 1, 'has_more' => $page < count($expected), 'filters_applied' => true,
+            ]);
+            expect($response->headers->get('Cache-Control'))->toContain('no-store');
+        }
+    }
+});
+
+it('keeps related search and filters within current application eligibility', function () {
+    $office = Office::factory()->create(['name' => 'Needle Office', 'abbreviation' => 'NDL']);
+    $position = Position::create(['title' => 'Sentinel']);
+    $attributes = ['office_id' => $office->id, 'position_id' => $position->id];
+    $allowed = ($this->person)('standard', $attributes);
+    ($this->person)('guest', $attributes);
+    ($this->person)('unknown', $attributes);
+    ($this->person)('standard', [...$attributes, 'is_active' => false]);
+    ($this->person)('standard', [...$attributes, 'must_change_password' => true]);
+    ($this->person)('standard', $attributes)->delete();
+    $other = Application::factory()->create();
+    $other->employees()->attach(Employee::factory()->create($attributes), ['role' => 'standard']);
+    Employee::factory()->create($attributes);
+
+    foreach (['Needle', 'NDL', 'Sentinel', 'Needle Sentinel'] as $search) {
+        foreach ([[], $attributes] as $filters) {
+            $this->getJson(($this->url)([...$filters, 'search' => $search]), $this->headers)->assertOk()
+                ->assertJsonCount(1, 'data')->assertJsonPath('data.0.uuid', $allowed->uuid);
+        }
+    }
+    $this->application->employees()->detach($allowed);
+    $this->getJson(($this->url)([...$attributes, 'search' => 'Needle Sentinel']), $this->headers)->assertOk()
+        ->assertJsonCount(0, 'data')->assertJsonPath('meta.filters_applied', true);
+});
+
+it('searches related fields with literal wildcards and current reference values', function (string $field) {
+    $office = Office::factory()->create(['name' => 'Ordinary Office', 'abbreviation' => 'ORD']);
+    $position = Position::create(['title' => 'Ordinary Position']);
+    $reference = $field === 'title' ? $position : $office;
+    $reference->update([$field => 'Signal%_!Value', 'is_active' => false]);
+    $employee = ($this->person)('standard', ['office_id' => $office->id, 'position_id' => $position->id]);
+    ($this->person)('standard', ['office_id' => Office::factory()->create(['name' => 'SignalXXXValue'])->id, 'position_id' => null]);
+
+    foreach (['SIGNAL%_!VALUE', '%_!'] as $search) {
+        $this->getJson(($this->url)(['search' => $search]), $this->headers)->assertOk()
+            ->assertJsonCount(1, 'data')->assertJsonPath('data.0.uuid', $employee->uuid);
+    }
+    $reference->update([$field => 'Renamed']);
+    $this->getJson(($this->url)(['search' => 'Signal%_!Value']), $this->headers)->assertOk()->assertJsonCount(0, 'data');
+    $this->getJson(($this->url)(['search' => 'Renamed']), $this->headers)->assertOk()
+        ->assertJsonCount(1, 'data')->assertJsonPath('data.0.uuid', $employee->uuid);
+})->with(['name', 'abbreviation', 'title']);
+
+it('combines search terms across names and relations without losing employees with null relations', function () {
+    $office = Office::factory()->create(['name' => 'Municipal Treasury', 'abbreviation' => 'MTO']);
+    $position = Position::create(['title' => 'Engineer']);
+    $employee = ($this->person)('standard', ['first_name' => 'Maria', 'middle_name' => null, 'last_name' => 'Reyes', 'suffix' => null, 'office_id' => $office->id, 'position_id' => $position->id]);
+    $unassigned = ($this->person)('standard', ['first_name' => 'Nora', 'middle_name' => null, 'last_name' => 'Santos', 'suffix' => null, 'office_id' => null, 'position_id' => null]);
+    $this->getJson(($this->url)(['search' => '  MARIA  engineer MTO treasury ']), $this->headers)->assertOk()
+        ->assertJsonCount(1, 'data')->assertJsonPath('data.0.uuid', $employee->uuid);
+    $this->getJson(($this->url)(['search' => 'Maria engineer absent']), $this->headers)->assertOk()->assertJsonCount(0, 'data');
+    $this->getJson(($this->url)(['search' => 'Nora']), $this->headers)->assertOk()
+        ->assertJsonCount(1, 'data')->assertJsonPath('data.0.uuid', $unassigned->uuid);
+});
 
 it('requires an explicit role selection on both routes', function () {
     foreach (['', '/'.Str::uuid()] as $suffix) {
@@ -140,7 +231,7 @@ it('enforces active client credentials on directory and lookup', function (strin
 
 it('shares the existing application rate limit and preserves Retry-After', function () {
     $this->application->update(['rate_limit_per_minute' => 1]);
-    $this->getJson(($this->url)(), $this->headers)->assertOk();
+    $this->getJson(($this->url)(['office_id' => 999999]), $this->headers)->assertOk();
     $response = $this->getJson(($this->url)([], '/'.Str::uuid()), $this->headers)->assertStatus(429)->assertHeader('Retry-After');
     expect($response->headers->get('Cache-Control'))->toContain('no-store');
 });
