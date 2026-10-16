@@ -18,18 +18,30 @@ class SsoDirectoryController extends Controller
         $input = $request->validate([
             ...$this->roleRules(),
             'search' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'office_id' => ['sometimes', 'required', 'integer', 'min:1'],
+            'position_id' => ['sometimes', 'required', 'integer', 'min:1'],
             'page' => ['sometimes', 'integer', 'between:1,10000'],
             'per_page' => ['sometimes', 'integer', 'between:1,50'],
         ]);
 
         $query = $this->employees($request, $input['roles']);
+        foreach (['office_id', 'position_id'] as $filter) {
+            if (isset($input[$filter])) {
+                $query->where('employees.'.$filter, $input[$filter]);
+            }
+        }
         foreach (preg_split('/\s+/u', trim($input['search'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) as $term) {
             // An explicit escape character keeps literal %, _ and ! portable across SQLite and MySQL.
             $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($term)).'%';
-            $query->where(function ($names) use ($pattern): void {
+            $query->where(function ($matches) use ($pattern): void {
                 foreach (['first_name', 'middle_name', 'last_name', 'suffix'] as $column) {
-                    $names->orWhereRaw("LOWER(employees.{$column}) LIKE ? ESCAPE '!'", [$pattern]);
+                    $matches->orWhereRaw("LOWER(employees.{$column}) LIKE ? ESCAPE '!'", [$pattern]);
                 }
+                $matches->orWhereHas('office', fn ($office) => $office
+                    ->whereRaw("LOWER(offices.name) LIKE ? ESCAPE '!'", [$pattern])
+                    ->orWhereRaw("LOWER(offices.abbreviation) LIKE ? ESCAPE '!'", [$pattern]));
+                $matches->orWhereHas('position', fn ($position) => $position
+                    ->whereRaw("LOWER(positions.title) LIKE ? ESCAPE '!'", [$pattern]));
             });
         }
 
@@ -38,7 +50,12 @@ class SsoDirectoryController extends Controller
 
         return response()->json([
             'data' => $page->getCollection()->map(fn (Employee $employee) => $this->display($employee))->values(),
-            'meta' => ['page' => $page->currentPage(), 'per_page' => $page->perPage(), 'has_more' => $page->hasMorePages()],
+            'meta' => [
+                'page' => $page->currentPage(),
+                'per_page' => $page->perPage(),
+                'has_more' => $page->hasMorePages(),
+                ...((isset($input['office_id']) || isset($input['position_id'])) ? ['filters_applied' => true] : []),
+            ],
         ]);
     }
 

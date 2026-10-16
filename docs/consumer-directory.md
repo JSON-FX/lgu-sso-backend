@@ -17,11 +17,21 @@ Example: `/api/v1/sso/directory?roles[]=standard&roles[]=administrator&roles[]=s
 | Parameter | Contract |
 | --- | --- |
 | `roles[]` | Required as described above; filtering precedes pagination |
-| `search` | Optional name search, maximum 100 characters; blank lists all permitted colleagues |
+| `search` | Optional search across name parts, office name/abbreviation and position title, maximum 100 characters; blank applies only the other filters |
+| `office_id` | Optional positive integer; exact current employee office assignment, applied before pagination |
+| `position_id` | Optional positive integer; exact current employee position assignment, applied before pagination |
 | `page` | Integer 1–10000, default 1 |
 | `per_page` | Integer 1–50, default 20 |
 
-Whitespace-separated terms must each match a first, middle, last name, or suffix. Matching uses lowercase name parts and follows database Unicode/collation behavior. `%`, `_`, and `!` are literal characters, not search operators. Results sort by last name, first name, then unique UUID. Pages are current reads, not a snapshot; concurrent employee edits may shift page boundaries. Refetch when needed and never use an old result as permission.
+Whitespace-separated terms must each match a first, middle, last name, suffix, office name, office abbreviation, or position title. Different terms may match different fields: `Maria MTO Engineer` can match an employee named Maria assigned to MTO with an Engineer position. Matching uses lowercase values and follows database Unicode/collation behavior. `%`, `_`, and `!` are literal characters, not search operators. Related-field matches never widen the requesting application's grants or selected roles. Employees without an office or position can still match their names.
+
+Office, position, search and role filters combine with AND before pagination. Omit unused ID parameters; supplied empty, non-integer, zero or negative IDs return 422. An unknown positive ID returns an empty list without disclosing whether the reference exists. Historical inactive office/position assignments remain filterable and searchable while the employee is otherwise eligible. Reference renames and changed employee assignments affect the next read.
+
+When either ID filter is supplied and valid, every successful list response adds `meta.filters_applied: true`, including empty and out-of-range pages. Unfiltered responses retain the metadata shape below. Consumers requesting ID filters must require this acknowledgment before displaying results: older deployments silently ignore unknown query parameters. The acknowledgment applies to the list endpoint only; it is not permission to contact an employee or a substitute for current recipient lookup.
+
+For example, append `&office_id=12&position_id=34` to the list example to match both assignments. Its metadata is `{"page":1,"per_page":20,"has_more":false,"filters_applied":true}` when no further matches remain.
+
+Results sort by last name, first name, then unique UUID. Pages are current reads, not a snapshot; concurrent employee edits may shift page boundaries. Refetch when needed and never use an old result as permission.
 
 ```json
 {
@@ -44,7 +54,7 @@ The example is synthetic. Office and position fields may be null. Position title
 
 ## Current recipient lookup
 
-`GET /api/v1/sso/directory/{uuid}?roles[]=standard&roles[]=administrator&roles[]=super_administrator` returns `{"data": {...}}` with the same display fields and current role. It applies the same current eligibility query. Search and pagination do not affect lookup.
+`GET /api/v1/sso/directory/{uuid}?roles[]=standard&roles[]=administrator&roles[]=super_administrator` returns `{"data": {...}}` with the same display fields and current role. It applies the same current eligibility query. Search, office/position list filters and pagination do not affect lookup.
 
 An invalid/unknown UUID, missing assignment, excluded role, inactive employee, unfinished password setup, or soft deletion returns the same `404 {"message":"Employee not found."}`. Recheck this endpoint before initiating contact. It is a current eligibility read, not an atomic reservation or permission to read conversation content. Consumers still enforce membership and ongoing authorization.
 
