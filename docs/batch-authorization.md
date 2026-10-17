@@ -33,7 +33,11 @@ tokens, hashes, secrets and submitted IDs are excluded.
 The existing shared HTTP budget still charges one request per batch. Separate
 `SSO_BATCH_ITEMS_PER_MINUTE` and `SSO_BATCH_GLOBAL_ITEMS_PER_MINUTE` count every
 item. Both must be positive. Fixed windows permit adjacent-window bursts; these
-are not sliding-minute ceilings. Rejected reservations remain charged. Counters
+are not sliding-minute ceilings. Rejected reservations remain charged. If a
+reservation crosses a boundary, the old charge is retained and one new reservation
+is attempted in the current window. Admission requires a stable within-limit
+result; repeated clock movement fails unavailable. True current-window exhaustion
+returns 429. Counters
 use the configured database store and its default database connection. Store
 failures fail closed; switching stores does not transfer existing counters.
 

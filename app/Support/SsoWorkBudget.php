@@ -30,27 +30,35 @@ class SsoWorkBudget
             throw new SsoCapacityException;
         }
 
-        $window = intdiv(now()->timestamp, $seconds);
-        $end = ($window + 1) * $seconds;
-        $key = 'sso-work:v1:'.$scope.':'.$window;
+        // A reservation spanning a boundary is retained, then charged once in the fresh window.
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $window = intdiv(now()->timestamp, $seconds);
+            $end = ($window + 1) * $seconds;
+            $key = 'sso-work:v1:'.$scope.':'.$window;
 
-        try {
-            $store = $this->store();
-            // Keep one counter generation beyond its window. Rejected work stays charged.
-            $store->add($key, 0, $end - now()->timestamp + 120);
-            $used = $store->increment($key, $amount);
-        } catch (Throwable) {
-            throw new SsoCapacityException;
+            try {
+                $store = $this->store();
+                // Keep counter generations beyond their window. Rejected work stays charged.
+                $store->add($key, 0, $end - now()->timestamp + 120);
+                $used = $store->increment($key, $amount);
+            } catch (Throwable) {
+                throw new SsoCapacityException;
+            }
+
+            if (! is_int($used) || $used < 1) {
+                throw new SsoCapacityException;
+            }
+            if (intdiv(now()->timestamp, $seconds) !== $window) {
+                continue;
+            }
+            if ($used > $limit) {
+                throw new SsoCapacityException(429, max(1, $end - now()->timestamp));
+            }
+
+            return;
         }
 
-        if (! is_int($used) || $used < 1) {
-            throw new SsoCapacityException;
-        }
-        if (intdiv(now()->timestamp, $seconds) !== $window) {
-            throw new SsoCapacityException(429);
-        }
-        if ($used > $limit) {
-            throw new SsoCapacityException(429, max(1, $end - now()->timestamp));
-        }
+        // Repeated clock movement cannot establish current admission within bounded work.
+        throw new SsoCapacityException;
     }
 }
