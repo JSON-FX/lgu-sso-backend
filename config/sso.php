@@ -5,6 +5,24 @@ return [
     // Optional application-counter store; login and registration keep their existing limiter.
     'app_rate_limit_store' => env('SSO_APP_RATE_LIMIT_STORE'),
 
+    'capacity_store' => env('SSO_CAPACITY_STORE', 'database'),
+
+    'batch' => [
+        'enabled' => (bool) env('SSO_BATCH_ENABLED', false),
+        'application_uuid' => env('SSO_BATCH_APPLICATION_UUID', ''),
+        // Zero budgets prevent activation until isolated measurement and release review.
+        'items_per_minute' => (int) env('SSO_BATCH_ITEMS_PER_MINUTE', 0),
+        'global_items_per_minute' => (int) env('SSO_BATCH_GLOBAL_ITEMS_PER_MINUTE', 0),
+    ],
+
+    'client_comparison' => [
+        'enabled' => (bool) env('SSO_CLIENT_COMPARISON_ENABLED', false),
+        'application_uuid' => env('SSO_CLIENT_COMPARISON_APPLICATION_UUID', ''),
+        'ttl' => 60,
+        'cold_per_minute' => (int) env('SSO_CLIENT_COLD_PER_MINUTE', 0),
+        'global_cold_per_minute' => (int) env('SSO_CLIENT_GLOBAL_COLD_PER_MINUTE', 0),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | SSO Cookie Name

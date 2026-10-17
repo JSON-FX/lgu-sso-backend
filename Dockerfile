@@ -38,7 +38,7 @@ RUN chown -R laravel:laravel /app \
     && chmod +x /app/docker-entrypoint.sh
 
 USER laravel
-EXPOSE 9000
+EXPOSE 9000 9001
 ENV SSO_SERVER_MODE=php-fpm
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 

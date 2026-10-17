@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\Application;
+use App\Support\ClientSecretComparison;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -25,7 +26,7 @@ class ValidateAppCredentials
             ->where('is_active', true)
             ->first();
 
-        if (! $application || ! $application->validateSecret($clientSecret)) {
+        if (! $application || ! app(ClientSecretComparison::class)->check($application, $clientSecret)) {
             return response()->json([
                 'message' => 'Invalid client credentials.',
             ], Response::HTTP_UNAUTHORIZED);

@@ -114,6 +114,7 @@ Route::prefix('v1')->group(function () {
             ->middleware(['auth:api', EnsureActiveSsoToken::class]);
 
         Route::middleware([ValidateAppCredentials::class, PerAppRateLimit::class])->group(function () {
+            Route::post('authorize-batch', \App\Http\Controllers\Api\V1\SsoBatchAuthorizationController::class);
             Route::post('exchange', [SsoAuthorizationCodeController::class, 'exchange']);
             Route::post('validate', [SsoController::class, 'validate'])
                 ->middleware(AuditLogger::class);

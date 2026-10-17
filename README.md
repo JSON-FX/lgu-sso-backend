@@ -4,6 +4,10 @@ Laravel 12 authentication API for the LGU platform. It owns employee accounts, a
 
 ## Request accounting and optional counter storage
 
+The optional [bounded batch authorization contract](docs/batch-authorization.md)
+adds fresh per-item decisions and a successful client-secret comparison memo.
+Both features default off and require explicit application and work budgets.
+
 Successful `/api/v1/sso/authorize` and `/api/v1/sso/validate` requests produce one audit event with the verified employee, application, method, path and response status. Rejected checks remain audited without trusting a submitted employee identity. Tokens and client secrets are not audit metadata. Current token, employee, password-setup and application-grant checks still run on every request; an audit event is not an authorization cache.
 
 `SSO_APP_RATE_LIMIT_STORE` optionally selects a configured Laravel cache store for **application rate counters only**. When unset, the original framework limiter and existing counters are used. For example, `SSO_APP_RATE_LIMIT_STORE=redis` selects `cache.stores.redis`. Login and registration continue using their original framework limiter; setting this option does not change their store, thresholds or counter state. A selected store failure is not allowed to fall back to an empty budget or grant access.
