@@ -8,6 +8,7 @@ use App\Http\Traits\SetsSsoCookie;
 use App\Models\Application;
 use App\Models\Employee;
 use App\Support\ActiveSsoToken;
+use App\Support\ApplicationSessionAuthorization;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Tymon\JWTAuth\Exceptions\JWTException;
@@ -24,26 +25,18 @@ class SsoController extends Controller
             return response()->json(['valid' => false, 'authorized' => false, 'message' => 'A token is required.'], 400);
         }
 
-        try {
-            $payload = JWTAuth::setToken($token)->getPayload();
-            $employee = Employee::find($payload->get('sub'));
-            $session = $employee ? ActiveSsoToken::find($token, $employee->id) : null;
-            if (! $employee || ! $employee->is_active || ! $session) {
-                return response()->json(['valid' => false, 'authorized' => false, 'message' => 'Invalid or inactive session.'], 401);
-            }
-
-            $application = $request->attributes->get('application');
-            if (! $application instanceof Application || $session->application_id !== $application->id
-                || $employee->must_change_password || ! $employee->hasAccessTo($application)) {
-                return response()->json(['valid' => false, 'authorized' => false, 'message' => 'Application access denied.'], 403);
-            }
-
-            $request->attributes->set('sso_audit_employee', $employee);
-
-            return $employee;
-        } catch (JWTException $exception) {
-            return response()->json(['valid' => false, 'authorized' => false, 'message' => 'Invalid or expired token.'], 401);
+        $application = $request->attributes->get('application');
+        if (! $application instanceof Application) {
+            return response()->json(['valid' => false, 'authorized' => false, 'message' => 'Application access denied.'], 403);
         }
+        $decision = app(ApplicationSessionAuthorization::class)->decide($application, [$token])[0];
+        if ($decision['status'] !== 200) {
+            return response()->json(['valid' => false, 'authorized' => false, 'message' => 'Invalid session or application access denied.'], $decision['status']);
+        }
+        $request->attributes->set('sso_audit_employee', $decision['employee']);
+        $request->attributes->set('sso_authorized_role', $decision['role']->value);
+
+        return $decision['employee'];
     }
 
     public function validate(Request $request): JsonResponse
@@ -70,7 +63,7 @@ class SsoController extends Controller
 
         return response()->json([
             'authorized' => true,
-            'role' => $employee->getRoleFor($application)?->value,
+            'role' => $request->attributes->get('sso_authorized_role'),
             'employee' => ['uuid' => $employee->uuid, 'full_name' => $employee->full_name, 'email' => $employee->email],
         ]);
     }
@@ -118,7 +111,7 @@ class SsoController extends Controller
         $application = $request->attributes->get('application');
         $employee->load(['office', 'position', 'applications' => fn ($query) => $query->where('applications.id', $application->id)]);
 
-        return response()->json(['data' => new EmployeeResource($employee), 'role' => $employee->getRoleFor($application)?->value]);
+        return response()->json(['data' => new EmployeeResource($employee), 'role' => $request->attributes->get('sso_authorized_role')]);
     }
 
     public function sessionCheck(Request $request): JsonResponse
