@@ -118,6 +118,20 @@ it('can create an employee', function () {
         ->assertJsonPath('data.email', 'john.doe@example.com');
 });
 
+it('formats administrator-created personal details and only submitted fields on update', function () {
+    $created = $this->asSsoAdmin($this->admin)->postJson('/api/v1/employees', [
+        'first_name' => 'JOSÉ LUIS', 'middle_name' => null, 'last_name' => "D'ANGELO",
+        'birthday' => '1990-01-15', 'civil_status' => 'single', 'nationality' => 'FILIPINO',
+        'region' => 'REGION X', 'province' => 'BUKIDNON', 'city' => 'QUEZON', 'barangay' => 'POBLACION',
+    ])->assertCreated()->assertJsonPath('data.first_name', 'José Luis')
+        ->assertJsonPath('data.middle_name', null)->assertJsonPath('data.last_name', "D'Angelo")
+        ->assertJsonPath('data.nationality', 'Filipino')->assertJsonPath('data.region', 'REGION X');
+    $url = '/api/v1/employees/'.$created->json('data.uuid');
+    $this->putJson($url, ['middle_name' => '  DE LA   CRUZ ', 'nationality' => 'fILIPINO'])
+        ->assertOk()->assertJsonPath('data.first_name', 'José Luis')
+        ->assertJsonPath('data.middle_name', 'De La Cruz')->assertJsonPath('data.nationality', 'Filipino');
+});
+
 it('creates an employee with geographic location and no street details', function () {
     $this->asSsoAdmin($this->admin)->postJson('/api/v1/employees', [
         'first_name' => 'Jane', 'last_name' => 'Doe', 'birthday' => '1990-01-15',

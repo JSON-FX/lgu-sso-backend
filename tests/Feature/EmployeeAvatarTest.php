@@ -57,9 +57,20 @@ it('allows only current central super administrators to manage another employee 
     $this->postJson($url, ['photo' => UploadedFile::fake()->image('photo.png', 256, 256)])->assertOk();
     expect($subject->fresh()->avatar_version)->not->toBeNull()->and($this->employee->fresh()->avatar_version)->toBeNull();
     $this->get($url)->assertOk();
+    $this->deleteJson($url)->assertOk()->assertJsonPath('data.avatar_version', null);
+    $this->getJson($url)->assertNotFound();
+    $this->postJson($url, ['photo' => UploadedFile::fake()->image('replacement.png', 256, 256)])->assertOk();
     $this->employee->applications()->detach($admin);
     $this->deleteJson($url)->assertForbidden();
     expect($subject->fresh()->avatar_version)->not->toBeNull();
+});
+
+it('returns not found for an unknown employee photo instead of a server error', function () {
+    $url = '/api/v1/employees/'.\Illuminate\Support\Str::uuid().'/avatar';
+    $this->asSsoAdmin($this->employee)->getJson($url)->assertNotFound();
+    $this->postJson($url, ['photo' => UploadedFile::fake()->image('photo.png', 256, 256)])->assertNotFound();
+    $this->deleteJson($url)->assertNotFound();
+    expect(Storage::disk('avatars')->allFiles())->toBe([]);
 });
 
 it('rejects consumer tokens and revoked or setup-required central tokens', function (string $kind) {

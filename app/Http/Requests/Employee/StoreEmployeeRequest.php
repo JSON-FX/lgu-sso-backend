@@ -9,6 +9,8 @@ use Illuminate\Validation\Rule;
 
 class StoreEmployeeRequest extends FormRequest
 {
+    use FormatsPersonalDetails;
+
     public function authorize(): bool
     {
         return true;

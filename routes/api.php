@@ -23,8 +23,6 @@ use App\Http\Middleware\PrivateDirectoryResponse;
 use App\Http\Middleware\ValidateAppCredentials;
 use Illuminate\Support\Facades\Route;
 
-Route::model('employee', \App\Models\Employee::class);
-
 Route::prefix('v1')->group(function () {
     Route::prefix('auth')->group(function () {
         Route::get('registration-options', [RegistrationController::class, 'options'])->middleware('throttle:60,1,registration-options:');
