@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Employee;
 
 use App\Enums\CivilStatus;
+use App\Services\EmployeeCreation;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -37,5 +38,10 @@ class StoreEmployeeRequest extends FormRequest
             'date_employed' => ['nullable', 'date'],
             'date_terminated' => ['nullable', 'date', 'after_or_equal:date_employed'],
         ];
+    }
+
+    public function messages(): array
+    {
+        return ['email.unique' => EmployeeCreation::ACCOUNT_EXISTS];
     }
 }

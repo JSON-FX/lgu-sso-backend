@@ -5,6 +5,7 @@ use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Models\Office;
 use App\Models\Position;
+use App\Services\EmployeeCreation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -110,10 +111,76 @@ it('rejects duplicate selected applications and unavailable reference records', 
 
 it('does not claim or change an existing account with the same email', function () {
     $existing = Employee::factory()->create(['email' => $this->payload['email'], 'password' => 'existing-password']);
-    $this->postJson('/api/v1/auth/register', $this->payload)->assertUnprocessable()->assertJsonValidationErrors('email');
+    $this->postJson('/api/v1/auth/register', $this->payload)->assertUnprocessable()->assertJsonValidationErrors('email')
+        ->assertJsonPath('message', EmployeeCreation::ACCOUNT_EXISTS);
     expect(Employee::count())->toBe(1);
     expect(Hash::check('existing-password', $existing->fresh()->password))->toBeTrue();
     expect($existing->applications()->count())->toBe(0);
+});
+
+it('rejects an existing person using another email without changing their account', function (string $state) {
+    $existing = Employee::factory()->create([
+        'first_name' => 'Maria', 'middle_name' => 'Existing', 'last_name' => 'Santos',
+        'birthday' => $this->payload['birthday'], 'email' => 'm.santos@lgu.gov.ph',
+        'username' => 'm.santos', 'password' => 'Existing-secret123',
+        'is_active' => $state !== 'inactive',
+    ]);
+    $existing->applications()->attach($this->opts, ['role' => 'administrator']);
+    if ($state === 'deleted') {
+        $existing->delete();
+    }
+    $before = $existing->fresh()->getAttributes();
+    $auditCount = AuditLog::count();
+
+    $this->postJson('/api/v1/auth/register', $this->payload)->assertUnprocessable()
+        ->assertJsonValidationErrors('account')->assertJsonPath('message', EmployeeCreation::ACCOUNT_EXISTS);
+
+    expect(Employee::withTrashed()->count())->toBe(1)
+        ->and(Employee::withTrashed()->findOrFail($existing->id)->getAttributes())->toBe($before)
+        ->and($existing->applications()->count())->toBe(1)
+        ->and($existing->getRoleFor($this->opts)->value)->toBe('administrator')
+        ->and(AuditLog::count())->toBe($auditCount);
+})->with(['active', 'inactive', 'deleted']);
+
+it('matches normalized names and birthday even if optional names are omitted', function () {
+    Employee::factory()->create([
+        'first_name' => "  MARIA\t TERESA  ", 'last_name' => " DEL\u{00A0} ROSARIO ",
+        'middle_name' => 'Cruz', 'suffix' => 'Jr.', 'birthday' => $this->payload['birthday'],
+    ]);
+    $this->payload['first_name'] = 'maria teresa';
+    $this->payload['last_name'] = 'del rosario';
+    $this->postJson('/api/v1/auth/register', $this->payload)->assertUnprocessable()
+        ->assertJsonPath('message', EmployeeCreation::ACCOUNT_EXISTS);
+    expect(Employee::count())->toBe(1);
+});
+
+it('allows distinct people who share a generated username pattern', function (string $firstName, string $birthday) {
+    Employee::factory()->create([
+        'first_name' => $firstName, 'last_name' => 'Santos', 'birthday' => $birthday, 'username' => 'm.santos',
+    ]);
+    $this->postJson('/api/v1/auth/register', $this->payload)->assertCreated()->assertJsonPath('username', 'm.santos2');
+    expect(Employee::count())->toBe(2);
+})->with([['Miguel', '1995-11-04'], ['Maria', '1994-11-04']]);
+
+it('rejects repeat registration with another email after the first registration succeeds', function () {
+    $this->payload['applications'] = [];
+    $this->postJson('/api/v1/auth/register', $this->payload)->assertCreated();
+    $this->payload['email'] = 'another@example.test';
+    $this->postJson('/api/v1/auth/register', $this->payload)->assertUnprocessable()
+        ->assertJsonPath('message', EmployeeCreation::ACCOUNT_EXISTS);
+    expect(Employee::count())->toBe(1)
+        ->and(AuditLog::where('action', 'self_registered')->count())->toBe(1);
+});
+
+it('also prevents a super administrator from creating an existing identity', function () {
+    $admin = Employee::factory()->create();
+    Employee::factory()->create([
+        'first_name' => 'Maria', 'last_name' => 'Santos', 'birthday' => $this->payload['birthday'],
+    ]);
+    $payload = \Illuminate\Support\Arr::except($this->payload, ['password', 'password_confirmation', 'applications']);
+    $this->asSsoAdmin($admin)->postJson('/api/v1/employees', $payload)->assertUnprocessable()
+        ->assertJsonPath('message', EmployeeCreation::ACCOUNT_EXISTS);
+    expect(Employee::count())->toBe(2);
 });
 
 it('validates required details and password confirmation', function () {

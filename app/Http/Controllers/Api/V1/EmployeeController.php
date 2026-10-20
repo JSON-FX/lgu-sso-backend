@@ -11,6 +11,7 @@ use App\Http\Resources\EmployeeResource;
 use App\Models\Application;
 use App\Models\AuditLog;
 use App\Models\Employee;
+use App\Services\EmployeeCreation;
 use App\Support\ActiveSsoToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -55,12 +56,9 @@ class EmployeeController extends Controller
     public function store(StoreEmployeeRequest $request): JsonResponse
     {
         $data = $request->validated();
-        $username = Employee::generateUsername($data['first_name'], $data['last_name']);
         $initialPassword = Str::random(20);
-        $employee = Employee::create([
+        $employee = app(EmployeeCreation::class)->create([
             ...$data,
-            'username' => $username,
-            'email' => $data['email'] ?? "{$username}@lgu.gov.ph",
             'password' => $initialPassword,
             'must_change_password' => true,
         ]);
