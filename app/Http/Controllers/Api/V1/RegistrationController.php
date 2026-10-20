@@ -10,6 +10,7 @@ use App\Models\AuditLog;
 use App\Models\Employee;
 use App\Models\Office;
 use App\Models\Position;
+use App\Services\EmployeeCreation;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Arr;
@@ -55,9 +56,8 @@ class RegistrationController extends Controller
                         }
                     }
 
-                    $employee = Employee::create([
+                    $employee = app(EmployeeCreation::class)->create([
                         ...Arr::except($input, ['applications', 'password_confirmation', 'username', 'uuid', 'role', 'roles', 'is_active', 'must_change_password', 'date_employed', 'date_terminated']),
-                        'username' => Employee::generateUsername($input['first_name'], $input['last_name']),
                         'password' => Hash::make($input['password']),
                         'is_active' => true,
                         'must_change_password' => false,
@@ -75,10 +75,10 @@ class RegistrationController extends Controller
                             'uuid' => $app->uuid, 'name' => $app->name, 'role' => $this->defaultRole($app)->value,
                         ]),
                     ], 201)->header('Cache-Control', 'private, no-store');
-                });
+                }, 3);
             } catch (UniqueConstraintViolationException $exception) {
                 if (Employee::withTrashed()->where('email', $input['email'])->exists()) {
-                    throw ValidationException::withMessages(['email' => 'This email is already registered. Sign in or contact your SSO administrator.']);
+                    throw ValidationException::withMessages(['email' => EmployeeCreation::ACCOUNT_EXISTS]);
                 }
                 if ($attempt === 2) {
                     throw $exception;
