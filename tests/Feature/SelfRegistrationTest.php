@@ -118,6 +118,28 @@ it('does not claim or change an existing account with the same email', function 
     expect($existing->applications()->count())->toBe(0);
 });
 
+it('formats personal names and nationality while preserving credentials and other inputs', function () {
+    $this->payload = [...$this->payload,
+        'first_name' => '  MARÍA   ANA-MAY ', 'middle_name' => 'DELA CRUZ',
+        'last_name' => 'O’NEILL', 'nationality' => 'fILIPINO', 'suffix' => 'III',
+        'email' => 'PERSONAL@example.test', 'password' => 'KeEp-CASE123',
+        'password_confirmation' => 'KeEp-CASE123', 'residence' => 'BLK ABC ROAD',
+    ];
+    $this->postJson('/api/v1/auth/register', $this->payload)->assertCreated();
+    $employee = Employee::where('email', 'PERSONAL@example.test')->firstOrFail();
+    expect($employee->first_name)->toBe('María Ana-May')
+        ->and($employee->middle_name)->toBe('Dela Cruz')->and($employee->last_name)->toBe('O’Neill')
+        ->and($employee->nationality)->toBe('Filipino')->and($employee->suffix)->toBe('III')
+        ->and($employee->residence)->toBe('BLK ABC ROAD')
+        ->and(Hash::check('KeEp-CASE123', $employee->password))->toBeTrue();
+});
+
+it('preserves validation for invalid personal detail types', function (string $field) {
+    $this->payload[$field] = ['INVALID'];
+    $this->postJson('/api/v1/auth/register', $this->payload)->assertUnprocessable()->assertJsonValidationErrors($field);
+    expect(Employee::count())->toBe(0);
+})->with(['first_name', 'middle_name', 'last_name', 'nationality']);
+
 it('rejects an existing person using another email without changing their account', function (string $state) {
     $existing = Employee::factory()->create([
         'first_name' => 'Maria', 'middle_name' => 'Existing', 'last_name' => 'Santos',

@@ -8,6 +8,8 @@ use Illuminate\Validation\Rule;
 
 class UpdateEmployeeRequest extends FormRequest
 {
+    use FormatsPersonalDetails;
+
     public function authorize(): bool
     {
         return true;
